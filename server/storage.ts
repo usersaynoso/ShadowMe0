@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db, supabase } from "./db";
 import { eq, and, ne, or, inArray, gte, lte, not, like, desc, sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { users, profiles, friends, friend_groups, friend_group_members, 
@@ -8,7 +8,7 @@ import { users, profiles, friends, friend_groups, friend_group_members,
 import { z } from "zod";
 import connectPg from "connect-pg-simple";
 import session from "express-session";
-import { Pool } from '@neondatabase/serverless';
+import pg from 'pg';
 
 const PostgresSessionStore = connectPg(session);
 
@@ -91,10 +91,17 @@ export class DatabaseStorage implements IStorage {
       throw new Error("DATABASE_URL is required");
     }
     
+    // Create a PostgreSQL pool for the session store
+    const pgPool = new pg.Pool({ 
+      connectionString: process.env.DATABASE_URL 
+    });
+    
     this.sessionStore = new PostgresSessionStore({
-      pool: new Pool({ connectionString: process.env.DATABASE_URL }),
+      pool: pgPool,
       createTableIfMissing: true
     });
+    
+    console.log('Session store connected to Supabase PostgreSQL database');
   }
   
   // User methods
