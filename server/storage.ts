@@ -710,8 +710,7 @@ export class DatabaseStorage implements IStorage {
       .from(groups)
       .leftJoin(group_members, eq(groups.group_id, group_members.group_id))
       .groupBy(groups.group_id)
-      .orderBy(sql`count(${group_members.user_id})`)
-      .desc()
+      .orderBy((expr) => desc(sql`count(${group_members.user_id})`))
       .limit(5);
     
     // For each group, get preview members
@@ -842,7 +841,7 @@ export class DatabaseStorage implements IStorage {
       })
       .from(shadow_sessions)
       .innerJoin(posts, eq(shadow_sessions.post_id, posts.post_id))
-      .where(gte(shadow_sessions.starts_at, now.toISOString()))
+      .where(gte(shadow_sessions.starts_at, sql`${now}`))
       .orderBy(shadow_sessions.starts_at);
     
     // Get additional details for each session
@@ -898,8 +897,8 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(posts, eq(shadow_sessions.post_id, posts.post_id))
       .where(
         and(
-          lte(shadow_sessions.starts_at, now.toISOString()),
-          gte(shadow_sessions.ends_at, now.toISOString())
+          lte(shadow_sessions.starts_at, sql`${now}`),
+          gte(shadow_sessions.ends_at, sql`${now}`)
         )
       )
       .orderBy(shadow_sessions.starts_at);
@@ -946,6 +945,8 @@ export class DatabaseStorage implements IStorage {
   }
   
   async getUserJoinedShadowSessions(userId: string): Promise<any[]> {
+    const now = new Date();
+    
     // Get shadow sessions that the user has joined
     const joinedSessionsData = await db.select({
         session: shadow_sessions,
@@ -957,7 +958,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(shadow_session_participants.user_id, userId),
-          gte(shadow_sessions.starts_at, new Date().toISOString()) // Only upcoming
+          gte(shadow_sessions.starts_at, sql`${now}`) // Only upcoming
         )
       )
       .orderBy(shadow_sessions.starts_at);
@@ -1013,7 +1014,7 @@ export class DatabaseStorage implements IStorage {
       })
       .from(shadow_sessions)
       .innerJoin(posts, eq(shadow_sessions.post_id, posts.post_id))
-      .where(lte(shadow_sessions.ends_at, now.toISOString()))
+      .where(lte(shadow_sessions.ends_at, sql`${now}`))
       .orderBy(desc(shadow_sessions.ends_at))
       .limit(10);
     
@@ -1159,8 +1160,9 @@ export class DatabaseStorage implements IStorage {
     
     if (isOnline) {
       // Update last seen time
+      const now = new Date();
       await db.update(profiles)
-        .set({ last_seen_at: new Date().toISOString() })
+        .set({ last_seen_at: sql`${now}` })
         .where(eq(profiles.user_id, userId));
     }
   }
