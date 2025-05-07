@@ -1,71 +1,96 @@
 #!/bin/bash
 
-# Colors for output
-RED='\033[0;31m'
+# Set strict mode
+set -e
+
+# Load environment variables
+source .env
+
+# Color definitions
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
 BLUE='\033[0;34m'
-YELLOW='\033[0;33m'
+PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}============================================${NC}"
-echo -e "${BLUE}    Shadow Me - Supabase Migration Tool    ${NC}"
-echo -e "${BLUE}============================================${NC}"
+# Print header
+echo -e "${BLUE}==============================================${NC}"
+echo -e "${BLUE}     Shadow Me - Database Migration Script    ${NC}"
+echo -e "${BLUE}==============================================${NC}"
 echo ""
 
-# Ensure we're in the project root
-cd "$(dirname "$0")/.."
-
-# Check if DATABASE_URL is set
-if [ -z "$DATABASE_URL" ]; then
-  echo -e "${RED}❌ DATABASE_URL environment variable is required${NC}"
-  echo -e "${YELLOW}💡 Create a .env file based on .env.example or set this variable in your environment${NC}"
+# Check for required environment variables
+if [[ -z "${SUPABASE_URL}" || -z "${SUPABASE_KEY}" ]]; then
+  echo -e "${RED}Error: SUPABASE_URL and SUPABASE_KEY environment variables must be set.${NC}"
+  echo -e "${YELLOW}Please create a .env file with these variables or set them in your environment.${NC}"
   exit 1
 fi
 
-# Check if SUPABASE_URL and SUPABASE_KEY are set
-if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
-  echo -e "${YELLOW}⚠️ SUPABASE_URL and/or SUPABASE_KEY not found. These are needed for some Supabase features.${NC}"
-  echo -e "${YELLOW}  The database migration might still work with just DATABASE_URL, but some features might be limited.${NC}"
+# Confirm with the user
+echo -e "${YELLOW}WARNING: This script will migrate your database to Supabase.${NC}"
+echo -e "${YELLOW}Make sure you have a backup of your data before proceeding.${NC}"
+echo -e "${YELLOW}Do you want to continue? (y/n)${NC}"
+
+read -r confirmation
+if [[ "$confirmation" != "y" && "$confirmation" != "Y" ]]; then
+  echo -e "${BLUE}Migration cancelled by user.${NC}"
+  exit 0
 fi
 
-# Generate SQL migration scripts
-echo -e "${BLUE}📝 Generating SQL migration scripts...${NC}"
-
-if ! node scripts/generate-schema-sql.js; then
-  echo -e "${RED}❌ Failed to generate SQL migration scripts. Please check the error message above.${NC}"
+echo -e "${PURPLE}Step 1: Testing Supabase connection...${NC}"
+node scripts/check-supabase-connection.js
+if [ $? -ne 0 ]; then
+  echo -e "${RED}Failed to connect to Supabase. Please check your credentials.${NC}"
   exit 1
 fi
-
-echo -e "${GREEN}✅ SQL migration scripts generated!${NC}"
-
-# Run the SQL migration
-echo -e "${BLUE}🚀 Executing SQL migration against Supabase database...${NC}"
-
-if ! node scripts/execute-schema-sql.js; then
-  echo -e "${RED}❌ Failed to execute SQL migration. Please check the error message above.${NC}"
-  exit 1
-fi
-
-echo -e "${GREEN}✅ Database schema migrated successfully!${NC}"
-
-# Run the seed script for emotions
-echo -e "${BLUE}🌱 Seeding emotions data...${NC}"
-
-if ! node scripts/seed-emotions.js; then
-  echo -e "${RED}❌ Emotion seeding failed. Please check the error message above.${NC}"
-  exit 1
-fi
-
-echo -e "${GREEN}✅ Migration and seeding completed!${NC}"
+echo -e "${GREEN}✓ Supabase connection successful.${NC}"
 echo ""
-echo -e "${BLUE}🎉 Your Shadow Me application is now configured to use Supabase!${NC}"
-echo ""
-echo -e "${BLUE}Next steps:${NC}"
-echo -e "1. Start your application: ${YELLOW}npm run dev${NC}"
-echo -e "2. Test user authentication and other features"
-echo -e "3. Set up environment variables in production"
 
-if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
-  echo ""
-  echo -e "${RED}⚠️ Remember to set SUPABASE_URL and SUPABASE_KEY for full Supabase functionality${NC}"
+# Execute the migration script
+echo -e "${PURPLE}Step 2: Executing migration script...${NC}"
+node scripts/execute-migration.js
+if [ $? -ne 0 ]; then
+  echo -e "${RED}Migration failed. See error message above.${NC}"
+  exit 1
 fi
+echo -e "${GREEN}✓ Migration completed successfully.${NC}"
+echo ""
+
+# Check if emotions table was created and seeded
+echo -e "${PURPLE}Step 3: Verifying emotions table...${NC}"
+node scripts/check-emotions-table.js
+if [ $? -ne 0 ]; then
+  echo -e "${YELLOW}⚠ Emotions table verification failed. Attempting to seed emotions data...${NC}"
+  
+  # Seed emotions data if needed
+  node scripts/seed-emotions.js
+  if [ $? -ne 0 ]; then
+    echo -e "${RED}Failed to seed emotions data.${NC}"
+    exit 1
+  fi
+  echo -e "${GREEN}✓ Emotions data seeded successfully.${NC}"
+else
+  echo -e "${GREEN}✓ Emotions table verified successfully.${NC}"
+fi
+echo ""
+
+# Verify all tables
+echo -e "${PURPLE}Step 4: Verifying all tables...${NC}"
+node scripts/check-supabase-tables.js
+if [ $? -ne 0 ]; then
+  echo -e "${RED}Table verification failed. Some tables may not have been created properly.${NC}"
+  exit 1
+fi
+echo -e "${GREEN}✓ All tables created successfully.${NC}"
+echo ""
+
+echo -e "${GREEN}==============================================${NC}"
+echo -e "${GREEN}     Migration to Supabase completed!        ${NC}"
+echo -e "${GREEN}==============================================${NC}"
+echo ""
+echo -e "${BLUE}Your application is now connected to Supabase.${NC}"
+echo -e "${YELLOW}Remember to update your .env file to use Supabase credentials for production.${NC}"
+echo ""
+
+exit 0
