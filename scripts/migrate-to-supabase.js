@@ -41,7 +41,7 @@ console.log(chalk.blue(`📊 Connected to Supabase database: ${process.env.DATAB
 console.log(chalk.blue('📝 Generating schema migrations...'));
 
 // Run Drizzle Kit to push schema changes
-const drizzleProcess = spawn('npx', ['drizzle-kit', 'push:pg'], {
+const drizzleProcess = spawn('npx', ['drizzle-kit', 'push'], {
   stdio: 'inherit',
   env: {
     ...process.env,

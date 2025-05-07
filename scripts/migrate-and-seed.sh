@@ -29,7 +29,10 @@ fi
 
 # Run the migration script
 echo -e "${BLUE}🚀 Running database migration to Supabase...${NC}"
-node scripts/migrate-to-supabase.js
+
+# Use npx directly to avoid issues with the node script
+echo -e "${BLUE}📝 Pushing schema to database...${NC}"
+npx drizzle-kit push
 
 # Check if migration was successful
 if [ $? -ne 0 ]; then
