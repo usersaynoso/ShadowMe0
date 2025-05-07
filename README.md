@@ -15,10 +15,11 @@ Shadow Me is designed to be a more intentional and emotionally aware social plat
 
 - **Frontend**: React with TypeScript and Vite
 - **Backend**: Express.js with TypeScript
-- **Database**: PostgreSQL with Drizzle ORM
+- **Database**: PostgreSQL with Drizzle ORM (migrated to Supabase)
 - **Authentication**: Passport.js with local strategy
 - **Real-time**: WebSockets for live updates
 - **Styling**: Tailwind CSS with shadcn/ui components
+- **Cloud Services**: Supabase for database and storage
 
 ## Getting Started
 
@@ -36,17 +37,25 @@ Shadow Me is designed to be a more intentional and emotionally aware social plat
    ```
 3. Set up the environment variables:
    ```
-   DATABASE_URL=postgres://user:password@localhost:5432/shadow_me
+   DATABASE_URL=postgres://postgres:[PASSWORD]@db.[YOUR-PROJECT-ID].supabase.co:6543/postgres
    SESSION_SECRET=your_session_secret
+   SUPABASE_URL=https://[YOUR-PROJECT-ID].supabase.co
+   SUPABASE_KEY=your_supabase_service_role_key
    ```
 4. Push the database schema:
    ```bash
    npm run db:push
    ```
-5. Start the development server:
+5. Seed the emotions data:
+   ```bash
+   node scripts/seed-emotions.js
+   ```
+6. Start the development server:
    ```bash
    npm run dev
    ```
+
+For detailed migration instructions, see [SUPABASE_MIGRATION.md](./SUPABASE_MIGRATION.md).
 
 ## Project Structure
 
