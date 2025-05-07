@@ -1,0 +1,274 @@
+Shadow Me is a gentle, emotionally supportive social platform where users connect through mood-based updates, thoughtful posts, and quiet presence. Here’s how the website works:
+
+⸻
+
+CORE CONCEPTS
+	•	Every user has a profile with a name, bio, avatar, and color-coded emotion ring.
+	•	Users express how they feel by selecting one or multiple emotions, each represented by a color.
+	•	These emotions surround their avatar and appear in every post.
+	•	Users post updates called posts. A post can be just emotions, or include text and images. Every post must include at least one emotion.
+	•	When a user’s profile picture is shown in a post, the halo uses the emotion colors from that post.
+When the avatar is shown elsewhere across the app (such as in messages, notifications, or profile pages), the emotion halo reflects the most recent post the viewer is allowed to see, based on post audience rules (Everyone, Friends, Circles, etc.).
+
+⸻
+
+SOCIAL STRUCTURE
+	•	Friends are mutual connections (the backend calls them friends, the UI says “connections”).
+	•	Users can create Friend Groups (named Circles) (e.g., “Work Buddies”, “Family”) to target posts to smaller circles.
+	•	Users can join Groups (named Spaces) (larger public communities based on shared interests).
+	•	Users can also join Chat Rooms for real-time conversation inside groups or 1-on-1. (named Lounges)
+
+⸻
+
+AUDIENCE & PRIVACY
+
+Every post has an audience type:
+	•	Everyone – public to all users
+	•	Connections – only accepted connections can see it
+	•	Just Me – visible only to the author
+	•	Circles – visible to selected friend groups (circles) multi-select
+	•	Spaces – visible to members of a specific Group, displayed only when posting in a Space and not editable.
+
+⸻
+
+SHADOW SESSIONS
+
+Shadow Sessions are scheduled companion events where users support each other during daily activities (e.g., “cleaning the kitchen together”).
+	•	A Shadow Session Post is just a post with extra fields: starts_at, ends_at, and timezone.
+	•	All post logic applies (emotions, media, audience, comments, etc.).
+	•	When the Shadow Session starts, it creates a new Shadow Conversation allowing private messaging.
+
+⸻
+
+REAL-TIME FEATURES
+	•	A self-hosted WebSocket server handles real-time:
+	•	Messages in Chat Rooms
+	•	Live presence (who’s online, who’s typing)
+	•	Notifications for mentions, replies, or new messages
+
+⸻
+
+DESIGN
+	•	Built in React + TailwindCSS using shadcn/ui for a soft, clean interface
+	•	Color-coded emotion rings visualize how users feel
+	•	All UI should feel calming, friendly, and poetic
+
+
+
+⸻
+
+Use this logic when building any features, forms, or components in the Shadow Me app.
+
+
+Create a complete PostgreSQL-compatible database schema for the Shadow Me platform. This database will be hosted on Supabase (used only as a database service). Use clear, raw SQL without ORMs or migration frameworks. The schema should be minimal, efficient, and readable — designed to work well with direct SQL queries from the frontend.
+
+---
+
+## ENUMS (create these first)
+
+Create the following ENUM types:
+
+- user_type_enum: 'user', 'moderator', 'manager', 'admin'
+- friendship_status_enum: 'pending', 'accepted', 'blocked'
+- parent_type_enum: 'friend_group', 'group', 'profile'
+- session_privacy_enum: 'one_to_one', 'friend_group', 'group', 'public'
+- post_parent_enum: 'profile', 'friend_group', 'group'
+- audience_enum: 'everyone', 'friends', 'just_me', 'friend_group', 'group'
+- message_type_enum: 'text', 'emoji', 'file'
+- reaction_type_enum: 'like', 'love', 'laugh', 'care', 'wow', 'sad', 'angry', 'emoji'
+- event_type_enum: 'friendship_accepted', 'message_sent', 'shadow_session_created', 'post_created', 'post_liked', 'post_commented'
+
+---
+
+## TABLES
+
+### users
+- user_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+- email TEXT UNIQUE NOT NULL
+- password_hash TEXT NOT NULL
+- user_type user_type_enum DEFAULT 'user'
+- user_points NUMERIC(12, 2) DEFAULT 0
+- user_level SMALLINT DEFAULT 1 CHECK (user_level BETWEEN 1 AND 6)
+- is_active BOOLEAN DEFAULT TRUE
+- created_at TIMESTAMPTZ DEFAULT NOW()
+
+---
+
+### profiles
+- profile_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+- user_id UUID UNIQUE REFERENCES users(user_id) ON DELETE CASCADE
+- display_name VARCHAR(60)
+- bio TEXT
+- avatar_url TEXT
+- timezone TEXT DEFAULT 'UTC'
+- last_seen_at TIMESTAMPTZ
+
+---
+
+### friends (mutual friend connections)
+- user_id UUID REFERENCES users(user_id) ON DELETE CASCADE
+- friend_id UUID REFERENCES users(user_id) ON DELETE CASCADE
+- status friendship_status_enum DEFAULT 'pending'
+- created_at TIMESTAMPTZ DEFAULT NOW()
+- PRIMARY KEY (user_id, friend_id)
+- CHECK (user_id <> friend_id)
+
+---
+
+### friend_groups (user-created small groups)
+- friend_group_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+- owner_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL
+- name VARCHAR(80) NOT NULL
+- description TEXT
+- created_at TIMESTAMPTZ DEFAULT NOW()
+
+---
+
+### friend_group_members
+- friend_group_id UUID REFERENCES friend_groups(friend_group_id) ON DELETE CASCADE
+- user_id UUID REFERENCES users(user_id) ON DELETE CASCADE
+- role VARCHAR(20) DEFAULT 'member'
+- joined_at TIMESTAMPTZ DEFAULT NOW()
+- PRIMARY KEY (friend_group_id, user_id)
+
+---
+
+### groups (larger communities)
+- group_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+- creator_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL
+- name VARCHAR(80) NOT NULL
+- topic_tag VARCHAR(50)
+- is_public BOOLEAN DEFAULT TRUE
+- description TEXT
+- created_at TIMESTAMPTZ DEFAULT NOW()
+
+---
+
+### group_members
+- group_id UUID REFERENCES groups(group_id) ON DELETE CASCADE
+- user_id UUID REFERENCES users(user_id) ON DELETE CASCADE
+- role VARCHAR(20) DEFAULT 'member'
+- joined_at TIMESTAMPTZ DEFAULT NOW()
+- PRIMARY KEY (group_id, user_id)
+
+---
+
+### chat_rooms
+- chat_room_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+- parent_type parent_type_enum NOT NULL
+- parent_id UUID NOT NULL
+- title VARCHAR(80)
+- created_at TIMESTAMPTZ DEFAULT NOW()
+
+---
+
+### chat_room_members
+- chat_room_id UUID REFERENCES chat_rooms(chat_room_id) ON DELETE CASCADE
+- user_id UUID REFERENCES users(user_id) ON DELETE CASCADE
+- mute_until TIMESTAMPTZ
+- joined_at TIMESTAMPTZ DEFAULT NOW()
+- PRIMARY KEY (chat_room_id, user_id)
+
+---
+
+### messages
+- message_id BIGSERIAL PRIMARY KEY
+- chat_room_id UUID REFERENCES chat_rooms(chat_room_id)
+- sender_id UUID REFERENCES users(user_id)
+- recipient_id UUID REFERENCES users(user_id) -- for 1-on-1 DMs
+- body TEXT
+- message_type message_type_enum DEFAULT 'text'
+- created_at TIMESTAMPTZ DEFAULT NOW()
+- edited_at TIMESTAMPTZ
+
+---
+
+### emotions (emotion palette)
+- emotion_id SMALLINT PRIMARY KEY
+- emotion_name VARCHAR(30) UNIQUE NOT NULL
+- emotion_color CHAR(7) NOT NULL CHECK (emotion_color ~ '^#[0-9A-Fa-f]{6}$')
+
+---
+
+### posts (Lightstream)
+- post_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+- author_user_id UUID REFERENCES users(user_id)
+- parent_type post_parent_enum NOT NULL
+- parent_id UUID NOT NULL
+- audience audience_enum NOT NULL
+- content TEXT
+- emotion_ids SMALLINT[] NOT NULL CHECK (array_length(emotion_ids, 1) BETWEEN 1 AND 3)
+- created_at TIMESTAMPTZ DEFAULT NOW()
+- updated_at TIMESTAMPTZ
+
+---
+
+### post_audience (for friend_group targeting)
+- post_id UUID REFERENCES posts(post_id) ON DELETE CASCADE
+- friend_group_id UUID REFERENCES friend_groups(friend_group_id) ON DELETE CASCADE
+- PRIMARY KEY (post_id, friend_group_id)
+
+---
+
+### post_media
+- media_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+- post_id UUID REFERENCES posts(post_id) ON DELETE CASCADE
+- media_url TEXT NOT NULL
+- media_type VARCHAR(20) NOT NULL
+- created_at TIMESTAMPTZ DEFAULT NOW()
+
+---
+
+### post_reactions
+- reaction_id BIGSERIAL PRIMARY KEY
+- post_id UUID REFERENCES posts(post_id) ON DELETE CASCADE
+- user_id UUID REFERENCES users(user_id)
+- reaction_type reaction_type_enum DEFAULT 'like'
+- created_at TIMESTAMPTZ DEFAULT NOW()
+- UNIQUE (post_id, user_id)
+
+---
+
+### post_comments
+- comment_id UUID PRIMARY KEY DEFAULT uuid_generate_v4()
+- post_id UUID REFERENCES posts(post_id) ON DELETE CASCADE
+- author_user_id UUID REFERENCES users(user_id)
+- parent_comment_id UUID REFERENCES post_comments(comment_id)
+- body TEXT
+- created_at TIMESTAMPTZ DEFAULT NOW()
+- edited_at TIMESTAMPTZ
+
+---
+
+### shadow_sessions (scheduled posts)
+- post_id UUID PRIMARY KEY REFERENCES posts(post_id) ON DELETE CASCADE
+- starts_at TIMESTAMPTZ NOT NULL
+- ends_at TIMESTAMPTZ NOT NULL
+- timezone TEXT NOT NULL
+
+---
+
+### shadow_session_participants
+- post_id UUID REFERENCES shadow_sessions(post_id) ON DELETE CASCADE
+- user_id UUID REFERENCES users(user_id)
+- joined_at TIMESTAMPTZ DEFAULT NOW()
+- PRIMARY KEY (post_id, user_id)
+
+---
+
+### feed_events
+- event_id BIGSERIAL PRIMARY KEY
+- user_id_actor UUID REFERENCES users(user_id)
+- event_type event_type_enum
+- payload JSONB
+- created_at TIMESTAMPTZ DEFAULT NOW()
+
+---
+
+## TRIGGERS / CONSTRAINTS TO IMPLEMENT
+
+1. Validate that every emotion ID in `posts.emotion_ids[]` exists in the `emotions` table.
+2. If `posts.audience = 'friend_group'`, require at least one entry in `post_audience` for that post.
+3. Ensure `user_level` is between 1 and 6.
+
+Use standard PostgreSQL syntax. No migrations. 
