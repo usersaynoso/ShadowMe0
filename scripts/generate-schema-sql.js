@@ -54,34 +54,28 @@ try {
   console.log(chalk.blue('📁 Check the "migrations" folder for the generated SQL files'));
   
   // Display path to migration files
-  if (fs.existsSync(migrationsPath)) {
-    const sqlFiles = fs.readdirSync(migrationsPath)
-      .filter(file => file.endsWith('.sql'))
-      .map(file => join(migrationsPath, file));
+  const sqlFiles = fs.readdirSync(migrationsPath)
+    .filter(file => file.endsWith('.sql'))
+    .map(file => join(migrationsPath, file));
+  
+  if (sqlFiles.length > 0) {
+    console.log(chalk.blue('📋 Generated SQL files:'));
+    sqlFiles.forEach(file => {
+      console.log(chalk.yellow(`   - ${file.replace(process.cwd(), '')}`));
+    });
     
-    if (sqlFiles.length > 0) {
-      console.log(chalk.blue('📋 Generated SQL files:'));
-      sqlFiles.forEach(file => {
-        console.log(chalk.yellow(`   - ${file.replace(process.cwd(), '')}`));
-      });
-      
-      // Display content of the first SQL file as an example
-      if (sqlFiles.length > 0) {
-        const firstSqlFile = sqlFiles[0];
-        console.log('');
-        console.log(chalk.blue(`📄 Example SQL content from ${firstSqlFile.replace(process.cwd(), '')}:`));
-        
-        const content = fs.readFileSync(firstSqlFile, 'utf8');
-        const preview = content.split('\n').slice(0, 10).join('\n') + 
-          (content.split('\n').length > 10 ? '\n...' : '');
-        
-        console.log(chalk.gray(preview));
-      }
-    } else {
-      console.log(chalk.yellow('⚠️ No SQL files generated. Your schema might be up to date.'));
-    }
+    // Display content of the first SQL file as an example
+    const firstSqlFile = sqlFiles[0];
+    console.log('');
+    console.log(chalk.blue(`📄 Example SQL content from ${firstSqlFile.replace(process.cwd(), '')}:`));
+    
+    const content = fs.readFileSync(firstSqlFile, 'utf8');
+    const preview = content.split('\n').slice(0, 10).join('\n') + 
+      (content.split('\n').length > 10 ? '\n...' : '');
+    
+    console.log(chalk.gray(preview));
   } else {
-    console.log(chalk.red('❌ Migrations folder not found. Something went wrong with drizzle-kit.'));
+    console.log(chalk.yellow('⚠️ No SQL files generated. Your schema might be up to date.'));
   }
   
   console.log('');
