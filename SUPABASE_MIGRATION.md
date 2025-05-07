@@ -1,181 +1,113 @@
-# Migrating Shadow Me to Supabase
+# Supabase Migration Guide for Shadow Me
 
-This guide provides instructions for migrating the Shadow Me application from a generic PostgreSQL database to Supabase.
+This guide explains how to migrate the Shadow Me application database from a local PostgreSQL database to Supabase.
 
 ## Prerequisites
 
-Before beginning the migration, ensure you have:
+1. A Supabase account and project
+2. Supabase project URL and service role key
+3. Node.js and NPM installed
 
-1. A Supabase account and project created
-2. Supabase API credentials (URL and API key)
-3. Node.js 18+ installed
+## Required Environment Variables
 
-## Setup Supabase Environment Variables
-
-Add the following environment variables to your project:
+Create a `.env` file in the project root with the following variables:
 
 ```
+# Supabase configuration
 SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_KEY=your-service-role-key
-DATABASE_URL=postgres://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-ID].supabase.co:6543/postgres
+
+# Database connection string (Supabase PostgreSQL)
+DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@[HOST]:[PORT]/postgres?sslmode=require
 ```
 
-You can find these values in your Supabase project dashboard under Settings > API.
+## Migration Process
 
-## Migration Steps
+### Automatic Migration
 
-### 1. Install Required Packages
-
-The project already has the necessary packages installed:
-- `@supabase/supabase-js`: Supabase JavaScript client
-- `postgres`: PostgreSQL client for JavaScript
-- `pg`: PostgreSQL client for Node.js (used by connect-pg-simple for sessions)
-
-### 2. Update Database Connection
-
-The database connection has been updated in `server/db.ts` to use Supabase:
-
-```typescript
-import { createClient } from '@supabase/supabase-js';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
-import * as schema from "@shared/schema";
-
-// Check if Supabase credentials are available
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
-  throw new Error(
-    "SUPABASE_URL and SUPABASE_KEY must be set. Did you forget to add these secrets?",
-  );
-}
-
-// Create Supabase client
-export const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
-
-// Extract connection string from Supabase
-const connectionString = `${process.env.DATABASE_URL}`;
-
-// Use postgres.js with the connection string
-const client = postgres(connectionString, { max: 10 });
-
-// Create Drizzle ORM instance with the postgres client
-export const db = drizzle(client, { schema });
-```
-
-### 3. Update Session Store
-
-The session store configuration has been updated in `server/storage.ts` to use Supabase PostgreSQL:
-
-```typescript
-import pg from 'pg';
-import connectPg from "connect-pg-simple";
-import session from "express-session";
-
-const PostgresSessionStore = connectPg(session);
-
-// In the DatabaseStorage constructor:
-const pgPool = new pg.Pool({ 
-  connectionString: process.env.DATABASE_URL 
-});
-
-this.sessionStore = new PostgresSessionStore({
-  pool: pgPool,
-  createTableIfMissing: true
-});
-```
-
-### 4. Run Database Migration
-
-To push your database schema to Supabase:
+The easiest way to migrate is to use the provided migration script:
 
 ```bash
-# Make the migration script executable
+# Make the script executable
 chmod +x scripts/migrate-and-seed.sh
 
 # Run the migration script
 ./scripts/migrate-and-seed.sh
 ```
 
-This will:
-1. Push the database schema using Drizzle Kit
-2. Seed the emotions table with the 12 emotions
+This script will:
+1. Check for required environment variables
+2. Generate SQL migration scripts from the Drizzle schema
+3. Execute the SQL against your Supabase PostgreSQL database
+4. Seed the emotions data (if needed)
 
-### 5. Direct Supabase API Access
+### Manual Migration (Step by Step)
 
-For certain operations, you may want to use the Supabase client directly. The client is exported from `server/db.ts`:
+If you prefer to run the migration steps manually:
 
-```typescript
-import { supabase } from './db';
+1. **Generate the SQL migration script**:
+   ```bash
+   node scripts/generate-schema-sql.js
+   ```
+   This will create SQL files in the `migrations` folder.
 
-// Example: Upload a file to Supabase Storage
-const { data, error } = await supabase
-  .storage
-  .from('avatars')
-  .upload('public/avatar1.png', imageFile);
-```
+2. **Execute the SQL migration**:
+   ```bash
+   node scripts/execute-schema-sql.js
+   ```
+   This will execute the SQL against your Supabase PostgreSQL database.
 
-## Storage Buckets Setup
+3. **Seed the emotions data**:
+   ```bash
+   node scripts/seed-emotions.js
+   ```
+   This will add the default emotions to your database.
 
-If your application uses file uploads, you'll need to create storage buckets in Supabase:
-
-1. Go to Storage in your Supabase dashboard
-2. Create the following buckets:
-   - `avatars`: For user profile pictures
-   - `post-media`: For media attached to posts
-
-For each bucket, set the appropriate access policies:
-
-- For `avatars`:
-  - Allow anyone to read (public access)
-  - Only allow authenticated users to upload to their own folder
-
-- For `post-media`:
-  - Allow anyone to read (public access)
-  - Only allow authenticated users to upload
-
-## Using Supabase Auth (Optional Future Enhancement)
-
-Currently, the application uses custom authentication with Passport.js. If you'd like to switch to Supabase Auth in the future:
-
-1. Update client-side authentication to use Supabase Auth methods
-2. Replace the server-side authentication in `server/auth.ts`
-3. Update protected routes to verify Supabase JWT tokens
+4. **Check the emotions table**:
+   ```bash
+   node scripts/check-emotions-table.js
+   ```
+   This will verify that the emotions table exists and has data.
 
 ## Troubleshooting
 
 ### Connection Issues
 
-If you encounter connection issues:
+If you encounter connection issues, check:
 
-1. Verify your `DATABASE_URL` format is correct
-2. Check if your IP is allowlisted in Supabase dashboard
-3. Ensure your database password is correctly URL-encoded
+1. Make sure your Supabase project is active
+2. Verify your DATABASE_URL is correct
+3. Ensure your network allows connections to Supabase
+4. Check if the database is in a sleep state (free tier limitation)
 
-### Schema Migration Issues
+### Schema Conflicts
 
-If schema migration fails:
+If you see errors about existing tables or relations:
 
-1. Check Supabase SQL editor for error logs
-2. Verify you have the right permissions (service role key should be used)
-3. Try running the migration commands manually:
+1. The tables already exist in your Supabase project
+2. You can safely ignore "relation already exists" errors during migration
+3. If you need a fresh start, you can drop the existing tables via the Supabase dashboard
 
-```bash
-npx drizzle-kit push:pg
-node scripts/seed-emotions.js
-```
+### Authentication Issues
 
-### Session Store Issues
+If authentication fails after migration:
 
-If sessions are not persisting:
+1. Check that your `SUPABASE_URL` and `SUPABASE_KEY` are correct
+2. Verify the database has the correct users table
+3. Ensure the application can connect to Supabase
 
-1. Check if the `session` table was created in your database
-2. Verify your PostgreSQL connection is working
-3. Check for any SSL certificate issues in your connection
+## Post-Migration
 
-## Additional Resources
+After migration, update your application configuration:
 
-- [Supabase Documentation](https://supabase.com/docs)
-- [Drizzle ORM Documentation](https://orm.drizzle.team/docs/overview)
-- [Drizzle Kit Documentation](https://orm.drizzle.team/kit-docs/overview)
+1. Make sure your production environment has the correct environment variables
+2. Update any deployment configurations to use Supabase
+3. Test all authentication and database features
+
+## Reverting the Migration
+
+If you need to revert to a local database:
+
+1. Update your DATABASE_URL to point to your local PostgreSQL instance
+2. Run the migration scripts against your local database
+3. Remove or comment out the Supabase-specific environment variables

@@ -1,42 +1,48 @@
 #!/bin/bash
 
-# Constants for colored output
+# Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
 NC='\033[0m' # No Color
 
-# Check if .env file exists
-if [ -f .env ]; then
-  echo -e "${BLUE}📂 Loading environment variables from .env file${NC}"
-  source .env
-else
-  echo -e "${YELLOW}⚠️ No .env file found, using system environment variables${NC}"
-fi
+echo -e "${BLUE}============================================${NC}"
+echo -e "${BLUE}    Shadow Me - Supabase Migration Tool    ${NC}"
+echo -e "${BLUE}============================================${NC}"
+echo ""
 
-# Check for required environment variables
+# Ensure we're in the project root
+cd "$(dirname "$0")/.."
+
+# Check if DATABASE_URL is set
 if [ -z "$DATABASE_URL" ]; then
   echo -e "${RED}❌ DATABASE_URL environment variable is required${NC}"
   echo -e "${YELLOW}💡 Create a .env file based on .env.example or set this variable in your environment${NC}"
   exit 1
 fi
 
+# Check if SUPABASE_URL and SUPABASE_KEY are set
 if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_KEY" ]; then
   echo -e "${YELLOW}⚠️ SUPABASE_URL and/or SUPABASE_KEY not found. These are needed for some Supabase features.${NC}"
   echo -e "${YELLOW}  The database migration might still work with just DATABASE_URL, but some features might be limited.${NC}"
 fi
 
-# Run the migration script
-echo -e "${BLUE}🚀 Running database migration to Supabase...${NC}"
+# Generate SQL migration scripts
+echo -e "${BLUE}📝 Generating SQL migration scripts...${NC}"
 
-# Use npx directly to avoid issues with the node script
-echo -e "${BLUE}📝 Pushing schema to database...${NC}"
-npx drizzle-kit push
+if ! node scripts/generate-schema-sql.js; then
+  echo -e "${RED}❌ Failed to generate SQL migration scripts. Please check the error message above.${NC}"
+  exit 1
+fi
 
-# Check if migration was successful
-if [ $? -ne 0 ]; then
-  echo -e "${RED}❌ Migration script failed. Please check the error message above.${NC}"
+echo -e "${GREEN}✅ SQL migration scripts generated!${NC}"
+
+# Run the SQL migration
+echo -e "${BLUE}🚀 Executing SQL migration against Supabase database...${NC}"
+
+if ! node scripts/execute-schema-sql.js; then
+  echo -e "${RED}❌ Failed to execute SQL migration. Please check the error message above.${NC}"
   exit 1
 fi
 
@@ -44,10 +50,8 @@ echo -e "${GREEN}✅ Database schema migrated successfully!${NC}"
 
 # Run the seed script for emotions
 echo -e "${BLUE}🌱 Seeding emotions data...${NC}"
-node scripts/seed-emotions.js
 
-# Check if seeding was successful
-if [ $? -ne 0 ]; then
+if ! node scripts/seed-emotions.js; then
   echo -e "${RED}❌ Emotion seeding failed. Please check the error message above.${NC}"
   exit 1
 fi

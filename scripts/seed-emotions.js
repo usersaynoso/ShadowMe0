@@ -3,10 +3,13 @@
 // This script seeds the emotions table with initial data
 
 import { createClient } from '@supabase/supabase-js';
+import { Pool, neonConfig } from '@neondatabase/serverless';
+import ws from 'ws';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
+import chalk from 'chalk';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -23,10 +26,15 @@ if (fs.existsSync('.env')) {
 }
 
 // Check required environment variables
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
-  console.error('❌ SUPABASE_URL and SUPABASE_KEY environment variables are required');
-  console.error('💡 Create a .env file based on .env.example or set these variables in your environment');
+if (!process.env.DATABASE_URL) {
+  console.error(chalk.red('❌ DATABASE_URL environment variable is required'));
+  console.error(chalk.yellow('💡 Create a .env file based on .env.example or set this variable in your environment'));
   process.exit(1);
+}
+
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+  console.warn(chalk.yellow('⚠️ SUPABASE_URL and/or SUPABASE_KEY not found. These are needed for some Supabase features.'));
+  console.warn(chalk.yellow('  The database migration might still work with just DATABASE_URL, but some features might be limited.'));
 }
 
 // Create Supabase client
@@ -34,6 +42,9 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
 );
+
+// Configure Neon to use ws for WebSockets
+neonConfig.webSocketConstructor = ws;
 
 // Define emotions data with emotion_ids for consistency
 const emotions = [
@@ -52,83 +63,112 @@ const emotions = [
 ];
 
 async function seedEmotions() {
-  console.log('🚀 Starting emotions seeding process...');
-  console.log(`📊 Connected to Supabase project: ${process.env.SUPABASE_URL}`);
+  console.log(chalk.blue('🚀 Starting emotions seeding process...'));
+  
+  let pool;
   
   try {
-    console.log('🔍 Checking if emotions table exists...');
+    // Create database connection
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL
+    });
     
-    // Check if emotions table exists by trying to select from it
-    const { error: tableCheckError } = await supabase
-      .from('emotions')
-      .select('emotion_id')
-      .limit(1);
+    console.log(chalk.blue(`📊 Connected to database: ${process.env.DATABASE_URL.split('@')[1].split('/')[0]}`));
     
-    if (tableCheckError && tableCheckError.code === '42P01') {
-      console.error('❌ Table "emotions" does not exist. Please run the database migration first.');
-      console.error('💡 Run: npm run db:push');
+    // Check if the emotions table exists
+    console.log(chalk.blue('🔍 Checking if emotions table exists...'));
+    
+    const tableCheckResult = await pool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'emotions'
+      );
+    `);
+    
+    const tableExists = tableCheckResult.rows[0].exists;
+    
+    if (!tableExists) {
+      console.error(chalk.red('❌ Table "emotions" does not exist. Please run the database migration first.'));
+      console.error(chalk.yellow('💡 Run: npm run db:push'));
       process.exit(1);
     }
     
     // Check for existing emotions
-    const { data: existingEmotions, error: checkError } = await supabase
-      .from('emotions')
-      .select('emotion_id, emotion_name');
-      
-    if (checkError) {
-      console.error('❌ Error checking existing emotions:', checkError);
-      process.exit(1);
-    }
+    const existingEmotionsResult = await pool.query('SELECT emotion_id, emotion_name FROM emotions;');
+    const existingEmotions = existingEmotionsResult.rows;
     
     if (existingEmotions && existingEmotions.length > 0) {
-      console.log(`⚠️ Found ${existingEmotions.length} existing emotions:`);
+      console.log(chalk.yellow(`⚠️ Found ${existingEmotions.length} existing emotions:`));
       existingEmotions.forEach(emotion => {
-        console.log(`  - ${emotion.emotion_name} (ID: ${emotion.emotion_id})`);
+        console.log(chalk.yellow(`  - ${emotion.emotion_name} (ID: ${emotion.emotion_id})`));
       });
       
-      // Confirm if user wants to delete existing emotions
-      console.log('🗑️ Clearing existing emotions...');
+      console.log(chalk.blue('ℹ️ Table already has data. Would you like to:'));
+      console.log(chalk.blue('1. Keep existing emotions (default)'));
+      console.log(chalk.blue('2. Skip seeding altogether'));
       
-      // Clear existing emotions
-      const { error: deleteError } = await supabase
-        .from('emotions')
-        .delete()
-        .not('emotion_id', 'is', null);
-        
-      if (deleteError) {
-        console.error('❌ Error clearing existing emotions:', deleteError);
-        process.exit(1);
+      // Default to keeping existing data
+      console.log(chalk.green('✅ Using existing emotions data.'));
+      
+      // Get the existing emotions to display at the end
+      const sampleDataResult = await pool.query('SELECT * FROM emotions LIMIT 5;');
+      console.log(chalk.blue('📋 Sample data (first 5 emotions):'));
+      sampleDataResult.rows.forEach(row => {
+        console.log(chalk.yellow(`   - ID: ${row.emotion_id}, Name: ${row.emotion_name}, Color: ${row.emotion_color}`));
+      });
+      
+      console.log('');
+      console.log(chalk.green('🎉 All done! The emotions are already available in your Supabase database.'));
+      return;
+    }
+    
+    // If no existing emotions, insert the new ones
+    console.log(chalk.blue(`🌱 Seeding ${emotions.length} emotions...`));
+    
+    // Begin transaction
+    await pool.query('BEGIN');
+    
+    // Insert each emotion
+    for (const emotion of emotions) {
+      try {
+        await pool.query(
+          'INSERT INTO emotions (emotion_id, emotion_name, emotion_color) VALUES ($1, $2, $3)',
+          [emotion.emotion_id, emotion.emotion_name, emotion.emotion_color]
+        );
+        process.stdout.write(chalk.green('.'));
+      } catch (error) {
+        console.error(chalk.red(`❌ Error inserting emotion ${emotion.emotion_name}:`));
+        console.error(chalk.red(error.message));
+        await pool.query('ROLLBACK');
+        throw error;
       }
-      
-      console.log('✅ Existing emotions cleared successfully.');
-    } else {
-      console.log('✅ No existing emotions found. Ready to seed.');
     }
     
-    // Insert emotions
-    console.log(`🌱 Seeding ${emotions.length} emotions...`);
+    // Commit transaction
+    await pool.query('COMMIT');
     
-    const { data, error } = await supabase
-      .from('emotions')
-      .insert(emotions)
-      .select();
-      
-    if (error) {
-      console.error('❌ Error seeding emotions:', error);
-      process.exit(1);
-    }
+    process.stdout.write('\n');
+    console.log(chalk.green('✅ Successfully seeded emotions!'));
     
-    console.log(`✅ Successfully seeded ${data.length} emotions:`);
-    data.forEach(emotion => {
-      console.log(`  - ${emotion.emotion_name} (${emotion.emotion_color})`);
+    // Display inserted data
+    const insertedDataResult = await pool.query('SELECT * FROM emotions;');
+    console.log(chalk.blue(`📋 Inserted ${insertedDataResult.rows.length} emotions:`));
+    insertedDataResult.rows.forEach(emotion => {
+      console.log(chalk.yellow(`  - ${emotion.emotion_name} (${emotion.emotion_color})`));
     });
     
     console.log('');
-    console.log('🎉 All done! The emotions are now available in your Supabase database.');
+    console.log(chalk.green('🎉 All done! The emotions are now available in your Supabase database.'));
     
   } catch (error) {
-    console.error('❌ Unexpected error:', error);
+    console.error(chalk.red('❌ Unexpected error:'));
+    console.error(chalk.red(error.message || error));
     process.exit(1);
+  } finally {
+    if (pool) {
+      await pool.end();
+    }
   }
 }
 
