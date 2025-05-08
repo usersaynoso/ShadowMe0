@@ -5,7 +5,7 @@ import { users, profiles, friends, friend_groups, friend_group_members,
          groups, group_members, emotions, posts, post_audience, post_media, 
          post_reactions, post_comments, shadow_sessions, shadow_session_participants,
          chat_rooms, chat_room_members, messages, session_messages,
-         notifications, InsertNotification, Notification } from "@shared/schema";
+         notifications, InsertNotification, Notification, users_metadata } from "@shared/schema";
 import { z } from "zod";
 import connectPg from "connect-pg-simple";
 import session from "express-session";
@@ -33,9 +33,9 @@ export interface IStorage {
   
   // Post methods
   getPosts(userId?: string, emotionFilter?: number[]): Promise<any[]>;
-  getPostById(postId: string): Promise<any>;
+  getPostById(postId: string, requesterId?: string): Promise<any>;
   createPost(data: any): Promise<any>;
-  getPostsByUser(userId: string): Promise<any[]>;
+  getPostsByUser(userId: string, requesterId?: string): Promise<any[]>;
   getPostReactionsCount(postId: string): Promise<number>;
   deletePost(postId: string, userId: string): Promise<void>;
   
@@ -111,6 +111,11 @@ export interface IStorage {
   
   // Session store
   sessionStore: session.Store;
+
+  updatePost(postId: string, userId: string, data: any): Promise<any>;
+
+  // Add new method
+  updateUserLastEmotions(userId: string, emotionIds: number[]): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -137,17 +142,20 @@ export class DatabaseStorage implements IStorage {
   
   // User methods
   async getUser(id: string): Promise<any> {
+    // Get user and profile
     const [user] = await db.select()
       .from(users)
       .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+      .leftJoin(users_metadata, eq(users.user_id, users_metadata.user_id))
       .where(eq(users.user_id, id));
     
     if (!user) return undefined;
     
-    // Merge user and profile into one object
+    // Merge user, profile, and metadata into one object
     return {
       ...user.users,
-      profile: user.profiles
+      profile: user.profiles,
+      lastEmotions: user.users_metadata?.last_emotions || []
     };
   }
   
@@ -222,7 +230,48 @@ export class DatabaseStorage implements IStorage {
   
   // Post methods
   async getPosts(userId?: string, emotionFilter?: number[]): Promise<any[]> {
-    // Complex query to get posts with authors, reactions count, etc.
+    // Get friend IDs if userId is provided
+    let friendIds: string[] = [];
+    if (userId) {
+      const friendsData = await db.select({ friend_id: friends.friend_id })
+        .from(friends)
+        .where(and(eq(friends.user_id, userId), eq(friends.status, 'accepted')));
+      friendIds = friendsData.map((f: { friend_id: string | null }) => f.friend_id).filter((id: string | null): id is string => !!id);
+    }
+
+    // Build privacy filter
+    let privacyCondition;
+    if (userId) {
+      // EXISTS subquery for friend_group audience (use sql.raw for Drizzle compatibility)
+      const friendGroupExists = sql.raw(`EXISTS (
+        SELECT 1 FROM post_audience
+        INNER JOIN friend_group_members ON post_audience.friend_group_id = friend_group_members.friend_group_id
+        WHERE post_audience.post_id = posts.post_id
+          AND friend_group_members.user_id = '${userId}'
+      )`);
+      privacyCondition = or(
+        eq(posts.audience, 'everyone'),
+        and(eq(posts.audience, 'friends'), inArray(posts.author_user_id, [userId, ...friendIds])),
+        eq(posts.author_user_id, userId),
+        and(eq(posts.audience, 'friend_group'), friendGroupExists)
+      );
+    } else {
+      privacyCondition = eq(posts.audience, 'everyone');
+    }
+
+    // Build emotion filter
+    let emotionCondition = undefined;
+    if (emotionFilter && emotionFilter.length > 0) {
+      emotionCondition = sql`${posts.emotion_ids} && ARRAY[${emotionFilter.join(',')}]::int2[]`;
+    }
+
+    // Combine conditions
+    let whereCondition = privacyCondition;
+    if (emotionCondition) {
+      whereCondition = and(privacyCondition, emotionCondition);
+    }
+
+    // Build query with a single .where()
     let query = db.select({
         post: posts,
         author: {
@@ -243,45 +292,23 @@ export class DatabaseStorage implements IStorage {
           (SELECT json_build_object(
             'post_id', ss.post_id,
             'starts_at', ss.starts_at,
-            'ends_at', ss.ends_at,
-            'timezone', ss.timezone,
-            'title', ss.title,
-            'participants', (
-              SELECT json_agg(json_build_object(
-                'user_id', u.user_id,
-                'profile', json_build_object(
-                  'display_name', p.display_name,
-                  'avatar_url', p.avatar_url
-                )
-              ))
-              FROM ${shadow_session_participants} ssp
-              JOIN ${users} u ON ssp.user_id = u.user_id
-              LEFT JOIN ${profiles} p ON u.user_id = p.user_id
-              WHERE ssp.post_id = ss.post_id
-            )
-           )
-           FROM ${shadow_sessions} ss
-           WHERE ss.post_id = ${posts.post_id})
+            'ends_at', ss.ends_at
+          )
+          FROM ${shadow_sessions} ss
+          WHERE ss.post_id = ${posts.post_id})
         `
       })
       .from(posts)
       .innerJoin(users, eq(posts.author_user_id, users.user_id))
       .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+      .leftJoin(post_media, eq(posts.post_id, post_media.post_id))
+      .where(whereCondition)
       .orderBy(desc(posts.created_at));
-    
-    // Apply emotion filter if provided
-    if (emotionFilter && emotionFilter.length > 0) {
-      // Use SQL to check if any of the filter emotions are in the emotion_ids array
-      query = query.where(
-        sql`${posts.emotion_ids} && ${sql.array(emotionFilter, 'int2')}`
-      );
-    }
-    
-    // Get posts 
+
     const postsData = await query;
-    
+
     // Process the results to structure them correctly
-    return postsData.map(post => ({
+    return postsData.map((post: any) => ({
       ...post.post,
       author: {
         ...post.author,
@@ -293,12 +320,31 @@ export class DatabaseStorage implements IStorage {
     }));
   }
   
-  async getPostById(postId: string): Promise<any> {
-    const [post] = await db.select()
-      .from(posts)
-      .where(eq(posts.post_id, postId));
-    
-    return post;
+  async getPostById(postId: string, requesterId?: string): Promise<any> {
+    try {
+      // First get the post
+      const [post] = await db.select()
+        .from(posts)
+        .where(eq(posts.post_id, postId));
+      
+      // If no post found, return null
+      if (!post) {
+        console.log(`Post ${postId} not found`);
+        return null;
+      }
+      
+      // Privacy check: If the post is "just_me" and requester is not the author, return null
+      if (post.audience === 'just_me' && (!requesterId || requesterId !== post.author_user_id)) {
+        console.log(`Privacy denied: Post ${postId} is private (just_me) and user ${requesterId} is not the author ${post.author_user_id}`);
+        return null;
+      }
+      
+      console.log(`Returning post ${postId} to user ${requesterId || 'unknown'}`);
+      return post;
+    } catch (error) {
+      console.error(`Error in getPostById for post ${postId}:`, error);
+      throw error;
+    }
   }
   
   async createPost(data: any): Promise<any> {
@@ -1339,17 +1385,46 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Get posts by a specific user
-  async getPostsByUser(userId: string): Promise<any[]> {
+  async getPostsByUser(userId: string, requesterId?: string): Promise<any[]> {
     try {
-      console.log(`Getting posts for user ${userId}`);
-      
-      const result = await db
-        .select()
+      let friendIds: string[] = [];
+      if (requesterId) {
+        const friendsData = await db.select({ friend_id: friends.friend_id })
+          .from(friends)
+          .where(and(eq(friends.user_id, requesterId), eq(friends.status, 'accepted')));
+        friendIds = friendsData.map((f: { friend_id: string | null }) => f.friend_id).filter((id: string | null): id is string => !!id);
+      }
+      // Privacy: Only show posts if:
+      // - audience is 'everyone'
+      // - audience is 'friends' and requester is a friend
+      // - requester is the author
+      // - audience is 'friend_group' and requester is in at least one group
+      let whereCondition = eq(posts.author_user_id, userId);
+      if (requesterId && requesterId === userId) {
+        // Author viewing their own posts: show all
+      } else if (requesterId) {
+        const friendGroupExists = sql.raw(`EXISTS (
+          SELECT 1 FROM post_audience
+          INNER JOIN friend_group_members ON post_audience.friend_group_id = friend_group_members.friend_group_id
+          WHERE post_audience.post_id = posts.post_id
+            AND friend_group_members.user_id = '${requesterId}'
+        )`);
+        whereCondition = and(
+          eq(posts.author_user_id, userId),
+          or(
+            eq(posts.audience, 'everyone'),
+            and(eq(posts.audience, 'friends'), inArray(posts.author_user_id, friendIds)),
+            and(eq(posts.audience, 'friend_group'), friendGroupExists)
+          )
+        );
+      } else {
+        // Not logged in: only show 'everyone' posts
+        whereCondition = and(eq(posts.author_user_id, userId), eq(posts.audience, 'everyone'));
+      }
+      const result = await db.select()
         .from(posts)
-        .where(eq(posts.author_user_id, userId))
+        .where(whereCondition)
         .orderBy(desc(posts.created_at));
-      
-      console.log(`Found ${result.length} posts for user ${userId}`);
       return result;
     } catch (error) {
       console.error('Error getting posts by user:', error);
@@ -1633,6 +1708,8 @@ export class DatabaseStorage implements IStorage {
       
       if (error) {
         console.error("Error deleting from storage:", error);
+      } else {
+        console.log(`Storage: Successfully deleted file ${filename} from storage`);
       }
       
       // Delete from database
@@ -1807,7 +1884,7 @@ export class DatabaseStorage implements IStorage {
       }
       
       // First, verify the user is the author of the post
-      const post = await this.getPostById(postId);
+      const post = await this.getPostById(postId, userId);
       
       if (!post) {
         console.log(`Storage: Post ${postId} not found`);
@@ -1861,13 +1938,137 @@ export class DatabaseStorage implements IStorage {
         } else {
           console.log(`Storage: Successfully deleted post ${postId}`);
         }
-      } catch (dbError) {
+      } catch (dbError: any) {
         console.error(`Storage: Database error when deleting post:`, dbError);
         throw new Error(`Database error: ${dbError.message}`);
       }
     } catch (error) {
       console.error("Error in deletePost method:", error);
       throw error;
+    }
+  }
+
+  async updatePost(postId: string, userId: string, data: any): Promise<any> {
+    console.log(`[STORAGE] updatePost called with:`, { postId, userId, data });
+    
+    // Use the userId as requesterId for privacy checks
+    const post = await this.getPostById(postId, userId);
+    console.log(`[STORAGE] Found post:`, post);
+    
+    if (!post) {
+      console.log(`[STORAGE] Post not found: ${postId}`);
+      throw new Error('Post not found');
+    }
+    
+    if (post.author_user_id !== userId) {
+      console.log(`[STORAGE] Unauthorized: ${userId} trying to update post by ${post.author_user_id}`);
+      throw new Error('Unauthorized');
+    }
+
+    const { content, emotion_ids, audience, friend_group_ids } = data;
+    
+    // Create a proper Date object and then convert to ISO string
+    const now = new Date();
+    
+    const updateData: any = {
+      updated_at: now,
+    };
+    
+    if (typeof content !== 'undefined') updateData.content = content;
+    if (typeof emotion_ids !== 'undefined' && Array.isArray(emotion_ids)) updateData.emotion_ids = emotion_ids;
+    if (typeof audience !== 'undefined') updateData.audience = audience;
+
+    console.log(`[STORAGE] Updating post ${postId} with data:`, updateData);
+
+    // Update the post
+    try {
+      await db.update(posts)
+        .set(updateData)
+        .where(eq(posts.post_id, postId));
+      
+      console.log(`[STORAGE] Database update successful for post ${postId}`);
+      
+      // Update lastEmotions if emotion_ids were changed and audience is public or friends
+      if (emotion_ids && Array.isArray(emotion_ids) && 
+          (audience === 'everyone' || audience === 'friends' || 
+          (post.audience === 'everyone' || post.audience === 'friends'))) {
+        console.log(`[STORAGE] Updating lastEmotions for user ${userId} to:`, emotion_ids);
+        await this.updateUserLastEmotions(userId, emotion_ids);
+      }
+      
+      // If the audience is friend_group, update post_audience table
+      if (audience === 'friend_group' && friend_group_ids && Array.isArray(friend_group_ids)) {
+        console.log(`[STORAGE] Updating post_audience for friend_group audience`);
+        
+        try {
+          // First delete existing audience entries using a safer approach
+          await db.delete(post_audience)
+            .where(eq(post_audience.post_id, postId));
+          
+          // Then insert new ones if there are any
+          if (friend_group_ids.length > 0) {
+            // Create array of objects for insertion
+            const audienceValues = friend_group_ids.map((id: string) => ({
+              post_id: postId,
+              audience_type: 'friend_group',
+              audience_id: id
+            }));
+            
+            // Insert all audience values at once
+            await db.insert(post_audience)
+              .values(audienceValues);
+          }
+        } catch (audienceError) {
+          console.error(`[STORAGE] Error updating post audience:`, audienceError);
+          // Continue despite audience error - the post itself has been updated
+        }
+      }
+      
+      // Get the updated post with current user as requester to respect privacy
+      const updatedPost = await this.getPostById(postId, userId);
+      console.log(`[STORAGE] Retrieved updated post:`, updatedPost);
+      return updatedPost;
+    } catch (error) {
+      console.error(`[STORAGE] Error updating post:`, error);
+      throw error;
+    }
+  }
+
+  async updateUserLastEmotions(userId: string, emotionIds: number[]): Promise<void> {
+    if (!userId || !emotionIds || !Array.isArray(emotionIds)) {
+      console.error('Invalid parameters for updateUserLastEmotions:', { userId, emotionIds });
+      return;
+    }
+    
+    try {
+      // Store the emotion IDs as a JSONB array in the users_metadata table
+      // First check if there's an existing entry
+      const [existingMetadata] = await db.select()
+        .from(users_metadata)
+        .where(eq(users_metadata.user_id, userId));
+      
+      if (existingMetadata) {
+        // Update existing metadata
+        await db.update(users_metadata)
+          .set({ 
+            last_emotions: emotionIds,
+            updated_at: new Date()
+          })
+          .where(eq(users_metadata.user_id, userId));
+      } else {
+        // Create new metadata
+        await db.insert(users_metadata)
+          .values({
+            user_id: userId,
+            last_emotions: emotionIds,
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+      }
+      
+      console.log(`Updated last emotions for user ${userId} to:`, emotionIds);
+    } catch (error) {
+      console.error('Error updating user last emotions:', error);
     }
   }
 }
