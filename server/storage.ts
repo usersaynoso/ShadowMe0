@@ -41,6 +41,7 @@ export interface IStorage {
   // Comment methods
   getPostComments(postId: string): Promise<any[]>;
   createComment(data: any): Promise<any>;
+  getCommentById(commentId: string): Promise<any>;
   
   // Reaction methods
   getUserReactionToPost(postId: string, userId: string): Promise<any>;
@@ -376,6 +377,31 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(users, eq(post_comments.author_user_id, users.user_id))
       .leftJoin(profiles, eq(users.user_id, profiles.user_id))
       .where(eq(post_comments.comment_id, newComment.comment_id));
+    
+    // Return structured comment
+    return {
+      ...commentWithAuthor.comment,
+      author: {
+        ...commentWithAuthor.author,
+        profile: commentWithAuthor.author.profile
+      }
+    };
+  }
+  
+  async getCommentById(commentId: string): Promise<any> {
+    const [commentWithAuthor] = await db.select({
+        comment: post_comments,
+        author: {
+          ...users,
+          profile: profiles
+        }
+      })
+      .from(post_comments)
+      .innerJoin(users, eq(post_comments.author_user_id, users.user_id))
+      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+      .where(eq(post_comments.comment_id, commentId));
+    
+    if (!commentWithAuthor) return null;
     
     // Return structured comment
     return {
