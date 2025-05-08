@@ -42,7 +42,8 @@ export const AvatarRing: FC<AvatarRingProps> = ({
       return `${e.color} ${start}% ${end}%`;
     }).join(', ');
     
-    ring.style.setProperty('--gradient', `conic-gradient(${segments})`);
+    // Set the gradient with 0deg starting position to ensure proper circular display
+    ring.style.setProperty('--gradient', `conic-gradient(from 0deg, ${segments})`);
     
     // Handle pointer interactions
     const handlePointerMove = (e: PointerEvent) => {

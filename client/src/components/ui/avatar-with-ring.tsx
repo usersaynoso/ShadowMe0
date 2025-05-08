@@ -26,13 +26,18 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
   const selectedEmotionIds = emotionIds || user.lastEmotions || [];
   
   // Load emotions from API
-  const { data: allEmotions = [] } = useQuery<Emotion[]>({
+  const { data: allEmotions = [], isLoading: emotionsLoading } = useQuery<Emotion[]>({
     queryKey: ['/api/emotions'],
   });
   
   // Map emotion IDs to actual emotion objects
+  // Ensure they're in the same order as the selectedEmotionIds to maintain color consistency
   const emotions = selectedEmotionIds
-    .map(id => allEmotions.find(e => e.id === id))
+    .map(id => {
+      const emotion = allEmotions.find(e => e.id === id);
+      if (emotion) return emotion;
+      return null;
+    })
     .filter(Boolean) as Emotion[];
   
   // Calculate dimensions based on size
