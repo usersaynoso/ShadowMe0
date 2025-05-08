@@ -1,9 +1,11 @@
-import express, { type Express } from "express";
+import express, { type Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./auth";
 import { setupWebSockets } from "./websocket";
 import { db } from "./db";
+import { eq } from "drizzle-orm";
+import { posts, User } from "../shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -998,6 +1000,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to delete media:", err);
       res.status(500).json({ message: "Failed to delete media" });
+    }
+  });
+
+  // Delete a post
+  app.delete("/api/posts/:postId", isAuthenticated, async (req, res) => {
+    const { postId } = req.params;
+    console.log(`Received DELETE request for post ${postId}`);
+    
+    // Check for authenticated user
+    if (!req.user) {
+      console.error(`Authentication failed for deleting post ${postId}`);
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    
+    try {
+      const userId = req.user.user_id;
+      console.log(`User ${userId} attempting to delete post ${postId}`);
+      
+      // Get the post first to check if it exists and if user is the author
+      const post = await storage.getPostById(postId);
+      
+      if (!post) {
+        console.log(`Post ${postId} not found during deletion attempt`);
+        return res.status(404).json({ message: "Post not found" });
+      }
+      
+      if (post.author_user_id !== userId) {
+        console.log(`Permission denied: User ${userId} tried to delete post ${postId} owned by ${post.author_user_id}`);
+        return res.status(403).json({ message: "You can only delete your own posts" });
+      }
+      
+      // If validation passes, delete the post
+      await db.delete(posts)
+        .where(eq(posts.post_id, postId));
+      
+      console.log(`Successfully deleted post ${postId}`);
+      return res.status(204).send();
+    } catch (err) {
+      console.error(`Error deleting post ${postId}:`, err);
+      return res.status(500).json({ message: "Failed to delete post", error: String(err) });
+    }
+  });
+
+  // Add a POST endpoint for deletion as a workaround for browsers that don't handle DELETE well
+  app.post("/api/posts/:postId/delete", isAuthenticated, async (req, res) => {
+    const { postId } = req.params;
+    console.log(`Received POST delete request for post ${postId}`);
+    
+    // Check authentication
+    if (!req.user) {
+      console.error(`Authentication failed for deleting post ${postId}`);
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    
+    try {
+      const userId = req.user.user_id;
+      console.log(`User ${userId} attempting to delete post ${postId} via POST`);
+      
+      // Get the post to verify ownership
+      const post = await storage.getPostById(postId);
+      
+      if (!post) {
+        console.log(`Post ${postId} not found during deletion attempt`);
+        return res.status(404).json({ message: "Post not found" });
+      }
+      
+      if (post.author_user_id !== userId) {
+        console.log(`Permission denied: User ${userId} tried to delete post ${postId} owned by ${post.author_user_id}`);
+        return res.status(403).json({ message: "You can only delete your own posts" });
+      }
+      
+      // Delete directly from the database
+      await db.delete(posts)
+        .where(eq(posts.post_id, postId));
+      
+      console.log(`Successfully deleted post ${postId} via POST endpoint`);
+      
+      // Return success JSON response
+      return res.status(200).json({
+        success: true,
+        message: "Post deleted successfully"
+      });
+    } catch (err) {
+      console.error(`Error deleting post ${postId}:`, err);
+      return res.status(500).json({ message: "Failed to delete post", error: String(err) });
     }
   });
 

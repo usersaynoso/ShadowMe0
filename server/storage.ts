@@ -37,6 +37,7 @@ export interface IStorage {
   createPost(data: any): Promise<any>;
   getPostsByUser(userId: string): Promise<any[]>;
   getPostReactionsCount(postId: string): Promise<number>;
+  deletePost(postId: string, userId: string): Promise<void>;
   
   // Comment methods
   getPostComments(postId: string): Promise<any[]>;
@@ -1792,6 +1793,82 @@ export class DatabaseStorage implements IStorage {
   async deleteNotification(notificationId: string): Promise<void> {
     await db.delete(notifications)
       .where(eq(notifications.notification_id, notificationId));
+  }
+
+  // Implement the deletePost method
+  async deletePost(postId: string, userId: string): Promise<void> {
+    try {
+      console.log(`Storage: Attempting to delete post ${postId} by user ${userId}`);
+      
+      // Validate postId
+      if (!postId || typeof postId !== 'string') {
+        console.error(`Storage: Invalid post ID: ${postId}`);
+        throw new Error("Invalid post ID");
+      }
+      
+      // First, verify the user is the author of the post
+      const post = await this.getPostById(postId);
+      
+      if (!post) {
+        console.log(`Storage: Post ${postId} not found`);
+        throw new Error("Post not found");
+      }
+      
+      console.log(`Storage: Retrieved post author_user_id=${post.author_user_id}, comparing with requester ${userId}`);
+      
+      if (post.author_user_id !== userId) {
+        console.log(`Storage: Permission denied - user ${userId} is not the author of post ${postId}`);
+        throw new Error("You can only delete your own posts");
+      }
+      
+      // Delete associated media files from storage
+      console.log(`Storage: Getting media files for post ${postId}`);
+      const mediaFiles = await this.getPostMedia(postId);
+      console.log(`Storage: Found ${mediaFiles.length} media files to delete`);
+      
+      if (mediaFiles && mediaFiles.length > 0) {
+        for (const media of mediaFiles) {
+          // Extract filename from URL
+          const urlParts = media.media_url.split('/');
+          const filename = urlParts[urlParts.length - 1];
+          
+          console.log(`Storage: Attempting to delete file ${filename} from Supabase storage`);
+          // Delete from Supabase storage
+          const { error } = await supabase
+            .storage
+            .from('post-media')
+            .remove([filename]);
+          
+          if (error) {
+            console.error("Error deleting media from storage:", error);
+          } else {
+            console.log(`Storage: Successfully deleted file ${filename} from storage`);
+          }
+        }
+      }
+      
+      // Delete the post from the database
+      console.log(`Storage: Executing database DELETE for post ${postId}`);
+      try {
+        const deleteResult = await db.delete(posts)
+          .where(eq(posts.post_id, postId))
+          .returning();
+        
+        console.log(`Storage: Post deletion result:`, deleteResult);
+        
+        if (!deleteResult || deleteResult.length === 0) {
+          console.log(`Storage: No rows affected when deleting post ${postId}`);
+        } else {
+          console.log(`Storage: Successfully deleted post ${postId}`);
+        }
+      } catch (dbError) {
+        console.error(`Storage: Database error when deleting post:`, dbError);
+        throw new Error(`Database error: ${dbError.message}`);
+      }
+    } catch (error) {
+      console.error("Error in deletePost method:", error);
+      throw error;
+    }
   }
 }
 

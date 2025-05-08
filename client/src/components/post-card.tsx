@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { formatDistanceToNow } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 import { 
   Heart, 
   MessageCircle, 
@@ -17,13 +18,25 @@ import {
   Users,
   Lock,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Pencil,
+  Trash2,
+  Flag,
+  Copy,
+  Link
 } from "lucide-react";
 import { Post, Comment, User, Emotion } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { MediaGallery } from "@/components/ui/media-gallery";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface PostCardProps {
   post: Post;
@@ -32,11 +45,13 @@ interface PostCardProps {
 
 export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const [commentText, setCommentText] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [localReactionId, setLocalReactionId] = useState<number | null>(null);
   const [localReactionCount, setLocalReactionCount] = useState(post.reactions_count || 0);
+  const [isVisible, setIsVisible] = useState(true);
 
   // Get comments for this post - use full API URL path in the queryKey
   const { data: comments = [], refetch: refetchComments } = useQuery<Comment[]>({
@@ -54,7 +69,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   useEffect(() => {
     if (userReaction && typeof userReaction === 'object' && 'reaction_id' in userReaction) {
       setIsLiked(true);
-      setLocalReactionId(userReaction.reaction_id);
+      setLocalReactionId(userReaction.reaction_id as number);
     } else {
       setIsLiked(false);
       setLocalReactionId(null);
@@ -83,7 +98,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
         
         // Store the new reaction ID
         if (response && typeof response === 'object' && 'reaction_id' in response) {
-          setLocalReactionId(response.reaction_id);
+          setLocalReactionId(response.reaction_id as number);
         }
         
         return response;
@@ -160,6 +175,176 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   // Get comments to display based on showAllComments state
   const commentsToDisplay = showAllComments ? sortedComments : sortedComments.slice(0, 1);
 
+  // Delete post mutation
+  const deletePostMutation = useMutation({
+    mutationFn: async () => {
+      // Optimistically update UI by hiding the post
+      setIsVisible(false);
+      
+      console.log(`Attempting to delete post ${post.post_id}`);
+      
+      // Send a simple DELETE request with minimal headers
+      const response = await fetch(`/api/posts/${post.post_id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      
+      // Log the raw response
+      console.log(`Delete response status: ${response.status}`);
+      
+      // If the response is not ok, throw an error to trigger the onError handler
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Deletion error: ${errorText}`);
+        throw new Error(errorText || 'Failed to delete post');
+      }
+      
+      return response;
+    },
+    onSuccess: () => {
+      console.log(`Successfully deleted post ${post.post_id}, invalidating queries`);
+      // Invalidate and refetch relevant queries
+      queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
+      queryClient.invalidateQueries({ queryKey: [`/api/users/${user?.user_id}/posts`] });
+      
+      // Show success toast
+      toast({
+        title: "Post deleted",
+        description: "Your post has been deleted successfully.",
+      });
+    },
+    onError: (error) => {
+      console.error(`Failed to delete post ${post.post_id}:`, error);
+      
+      // Show error toast
+      toast({
+        title: "Error",
+        description: "Failed to delete post. Please try again.",
+        variant: "destructive",
+      });
+      
+      // Revert visibility since deletion failed
+      setIsVisible(true);
+    }
+  });
+
+  // Handle post actions
+  const handleDeletePost = async () => {
+    console.log(`Handling delete for post ${post.post_id}`);
+    
+    if (confirm('Are you sure you want to delete this post?')) {
+      console.log(`Delete confirmed for post ${post.post_id}`);
+      
+      // Hide the post optimistically
+      setIsVisible(false);
+      
+      try {
+        // Use fetch with POST method which is more reliable than DELETE
+        const response = await fetch(`/api/posts/${post.post_id}/delete`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        console.log(`Delete request status: ${response.status}`);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(errorText || 'Failed to delete post');
+        }
+        
+        // Show success toast
+        toast({
+          title: "Post deleted",
+          description: "Your post has been deleted successfully.",
+        });
+        
+        // Invalidate queries to refresh the UI
+        queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
+        queryClient.invalidateQueries({ queryKey: [`/api/users/${user?.user_id}/posts`] });
+        
+      } catch (error) {
+        console.error(`Error deleting post ${post.post_id}:`, error);
+        
+        // Show error toast
+        toast({
+          title: "Error",
+          description: "Failed to delete post. Please try again.",
+          variant: "destructive",
+        });
+        
+        // Revert visibility since deletion failed
+        setIsVisible(true);
+      }
+    }
+  };
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(`${window.location.origin}/post/${post.post_id}`);
+    toast({
+      title: "Link copied",
+      description: "Link has been copied to clipboard.",
+    });
+  };
+
+  const handleCopyText = () => {
+    navigator.clipboard.writeText(post.content || '');
+    toast({
+      title: "Text copied",
+      description: "Post text has been copied to clipboard.",
+    });
+  };
+
+  const handleEditPost = () => {
+    // Placeholder for edit post functionality
+    // This would typically open a modal or redirect to an edit page
+    toast({
+      title: "Coming Soon",
+      description: "Edit post functionality will be available soon!",
+      variant: "default",
+    });
+  };
+
+  const handleReportPost = () => {
+    // Placeholder for report post functionality
+    toast({
+      title: "Coming Soon",
+      description: "Report functionality will be available soon!",
+      variant: "default",
+    });
+  };
+
+  // Check if current user is the author of the post
+  const isAuthor = user?.user_id === post.author.user_id;
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Show a deleted state if the post is being deleted
+  useEffect(() => {
+    if (deletePostMutation.isPending) {
+      setIsDeleting(true);
+    }
+  }, [deletePostMutation.isPending]);
+
+  // If the post is being deleted, show a loading state
+  if (isDeleting) {
+    return (
+      <Card className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden opacity-60">
+        <CardContent className="p-8 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-gray-500">Deleting post...</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // If post has been deleted (optimistically or confirmed), don't render it
+  if (!isVisible) {
+    return null;
+  }
+
   return (
     <Card className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
       <CardHeader className="p-4">
@@ -180,9 +365,42 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
                   {getAudienceIcon()}
                   {getAudienceName()}
                 </span>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                  <MoreHorizontal size={16} />
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                      <MoreHorizontal size={16} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    {isAuthor && (
+                      <>
+                        <DropdownMenuItem className="cursor-pointer" onClick={handleEditPost}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          <span>Edit post</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="cursor-pointer text-red-500 hover:text-red-600 focus:text-red-600" onClick={handleDeletePost}>
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          <span>Delete post</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
+                    <DropdownMenuItem className="cursor-pointer" onClick={handleCopyLink}>
+                      <Link className="mr-2 h-4 w-4" />
+                      <span>Copy link</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="cursor-pointer" onClick={handleCopyText}>
+                      <Copy className="mr-2 h-4 w-4" />
+                      <span>Copy text</span>
+                    </DropdownMenuItem>
+                    {!isAuthor && (
+                      <DropdownMenuItem className="cursor-pointer text-orange-500 hover:text-orange-600 focus:text-orange-600" onClick={handleReportPost}>
+                        <Flag className="mr-2 h-4 w-4" />
+                        <span>Report post</span>
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
             

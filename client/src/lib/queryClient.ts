@@ -12,16 +12,48 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  console.log(`API Request: ${method} ${url}`, data ? 'with data' : 'without data');
+  
   // Don't set Content-Type header for FormData objects as browser will set it with the boundary
   const isFormData = data instanceof FormData;
   
-  const res = await fetch(url, {
+  // For DELETE requests with data, we need to properly encode it
+  const headers: HeadersInit = {};
+  if (data && !isFormData) {
+    headers['Content-Type'] = 'application/json';
+  }
+  
+  // Some browsers/servers don't properly handle DELETE requests with bodies
+  // For DELETE with data, consider using query parameters or custom headers
+  let finalUrl = url;
+  let body: any = isFormData ? data : data ? JSON.stringify(data) : undefined;
+  
+  if (method === 'DELETE' && data && typeof data === 'object') {
+    // For DELETE requests with body in browsers that don't support it,
+    // we could move the data to the URL as query parameters
+    try {
+      console.log(`Converting DELETE body to query params`, data);
+      const params = new URLSearchParams();
+      Object.entries(data as Record<string, any>).forEach(([key, value]) => {
+        params.append(key, String(value));
+      });
+      finalUrl = `${url}${url.includes('?') ? '&' : '?'}${params.toString()}`;
+      console.log(`Final DELETE URL with params: ${finalUrl}`);
+      // We still keep the body in case the server supports it
+    } catch (e) {
+      console.error('Error converting DELETE body to query params:', e);
+    }
+  }
+  
+  const res = await fetch(finalUrl, {
     method,
-    headers: data && !isFormData ? { "Content-Type": "application/json" } : {},
-    body: isFormData ? data : data ? JSON.stringify(data) : undefined,
+    headers,
+    body,
     credentials: "include",
   });
 
+  console.log(`API Response status: ${res.status} for ${method} ${url}`);
+  
   await throwIfResNotOk(res);
   return res;
 }
