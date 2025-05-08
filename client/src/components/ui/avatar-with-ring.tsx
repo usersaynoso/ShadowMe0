@@ -1,4 +1,4 @@
-import { FC } from 'react';
+import { FC, useEffect } from 'react';
 import { User } from "@/types";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { OnlineStatus } from "@/components/ui/online-status";
@@ -42,6 +42,21 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
     })
     .filter(Boolean) as Emotion[];
   
+  // Debug log the emotions being used
+  useEffect(() => {
+    console.log('User:', user.user_id);
+    console.log('Selected emotion IDs:', selectedEmotionIds);
+    console.log('All emotions from API:', allEmotions);
+    console.log('Mapped emotions for ring:', emotions);
+  }, [user, selectedEmotionIds, allEmotions, emotions]);
+  
+  // If no emotions or still loading, use a default set for testing visibility
+  const emotionsToUse = emotions.length > 0 ? emotions : [
+    { id: 1, name: 'Default1', color: '#ff0000' },
+    { id: 2, name: 'Default2', color: '#00ff00' },
+    { id: 3, name: 'Default3', color: '#0000ff' }
+  ];
+  
   // Calculate dimensions based on size
   const dimensions = {
     sm: {
@@ -84,11 +99,10 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
 
   return (
     <AvatarRing 
-      emotions={emotions}
+      emotions={emotionsToUse}
       className={cn("relative", className)}
       // Simple thickness based on size, no blur or glow
       thickness={dimensions[size].thickness}
-      // No rotation by default
       href={profileLink}
     >
       <Avatar className={cn("border-2 border-white dark:border-gray-800 bg-white dark:bg-gray-800", dimensions[size].avatar)}>

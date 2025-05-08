@@ -23,16 +23,15 @@ export const AvatarRing: FC<AvatarRingProps> = ({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const ringRef = useRef<HTMLDivElement>(null);
   
-  useEffect(() => {
-    const wrapper = wrapperRef.current;
-    const ring = ringRef.current;
+  // Generate gradient immediately to ensure it's visible
+  const generateGradient = () => {
+    if (emotions.length === 0) {
+      return 'transparent';
+    }
     
-    if (!wrapper || !ring || emotions.length === 0) return;
-    
-    // Build the conic gradient with sharp color transitions
     if (emotions.length === 1) {
       // For a single emotion, use a solid color
-      ring.style.setProperty('--gradient', emotions[0].color);
+      return emotions[0].color;
     } else {
       // For multiple emotions, create a clean segmented ring
       let gradientString = 'conic-gradient(';
@@ -52,9 +51,16 @@ export const AvatarRing: FC<AvatarRingProps> = ({
       });
       
       gradientString += ')';
-      ring.style.setProperty('--gradient', gradientString);
+      return gradientString;
     }
-  }, [emotions]);
+  };
+  
+  // Generate gradient value
+  const gradientValue = generateGradient();
+  
+  // Log to check emotions and gradient
+  console.log('Emotions:', emotions);
+  console.log('Gradient:', gradientValue);
   
   if (emotions.length === 0) return <>{children}</>;
   
@@ -66,23 +72,16 @@ export const AvatarRing: FC<AvatarRingProps> = ({
         ref={ringRef} 
         className="ring absolute pointer-events-none"
         style={{
-          inset: `calc(-1 * ${thickness}px)`,
+          inset: `-${thickness}px`,
           borderRadius: "50%",
-          background: "var(--gradient)",
+          background: gradientValue,
           // Simple ring mask with sharp edges
           mask: `radial-gradient(farthest-side, transparent calc(100% - ${thickness}px), #000 0)`,
-          // No blur or glow effects for a clean look
-          animation: rotation ? `spin ${rotation}s linear infinite` : 'none'
+          // No animation for now
         }}
       />
     </>
   );
-  
-  // Common styles for both Link and div
-  const commonStyles = {
-    '--ring-thickness': `${thickness}px`,
-    '--ring-rotation': `${rotation}s`,
-  } as React.CSSProperties;
   
   // If we have an href, render a Link
   if (href) {
@@ -94,7 +93,6 @@ export const AvatarRing: FC<AvatarRingProps> = ({
             "inline-block relative cursor-pointer",
             className
           )}
-          style={commonStyles}
         >
           {RingContent}
         </a>
@@ -111,7 +109,6 @@ export const AvatarRing: FC<AvatarRingProps> = ({
         "inline-block relative",
         className
       )}
-      style={commonStyles}
     >
       {RingContent}
     </div>

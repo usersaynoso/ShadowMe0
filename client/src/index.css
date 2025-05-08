@@ -104,25 +104,33 @@
 
 /* Avatar Ring styles */
 .avatar-ring {
-  --ring-thickness: 10px;
-  --ring-rotation: 0s;
   display: inline-block;
   position: relative;
 }
 
 .avatar-ring .ring {
   position: absolute;
-  inset: calc(-1 * var(--ring-thickness));
+  inset: -10px; /* Fixed value for testing visibility */
   border-radius: 50%;
   pointer-events: none;
-  --gradient: transparent;
-  background: var(--gradient);
-  mask: radial-gradient(
-    farthest-side, 
-    transparent calc(100% - var(--ring-thickness)), 
-    #000 0
-  );
+  background: var(--gradient, #ccc); /* Default to gray if no gradient */
+  mask: radial-gradient(farthest-side, transparent calc(100% - 10px), #000 0);
 }
+
+/* Simple debug style - uncomment if needed */
+/* 
+.avatar-ring::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
+  background: red;
+  border-radius: 50%;
+  z-index: 10;
+}
+*/
 
 /* Respect user preferences for reduced motion */
 @media (prefers-reduced-motion: reduce) {
