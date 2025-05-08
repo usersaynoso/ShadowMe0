@@ -412,6 +412,20 @@ If you encounter database connection issues:
 3. Check database credentials and permissions
 4. Verify that the connection pool is not exhausted
 
+### Category Selection in Spaces
+When implementing Select components with category filtering:
+1. Avoid using empty strings (`""`) as values for `<SelectItem>` components when there will be multiple select options.
+2. For "All Categories" or similar reset options, use a non-empty string value (e.g., "all") and handle it in your query logic:
+   ```tsx
+   // In component state
+   const [selectedCategory, setSelectedCategory] = useState<string>("all");
+   
+   // In API request
+   queryKey: ['/api/endpoint', { category: selectedCategory === "all" ? "" : selectedCategory }]
+   ```
+3. This approach prevents the "A <Select.Item /> must have a value prop that is not an empty string" error from Radix UI components.
+4. Always filter out any category items with empty string IDs before rendering them as select options.
+
 ## Optimization Strategies
 
 ### Query Performance

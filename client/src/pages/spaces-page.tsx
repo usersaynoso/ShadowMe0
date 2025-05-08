@@ -19,7 +19,7 @@ import { Loader2, Search, Users, Plus, Globe, Lock, Tag, UserPlus } from "lucide
 const SpacesPage: FC = () => {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string>("");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   
   // New space form state
@@ -42,7 +42,7 @@ const SpacesPage: FC = () => {
   
   // Get all available spaces (paginated)
   const { data: allSpaces = [], isLoading: allSpacesLoading } = useQuery<Group[]>({
-    queryKey: ['/api/groups', { search: searchQuery, category: selectedCategory }],
+    queryKey: ['/api/groups', { search: searchQuery, category: selectedCategory === "all" ? "" : selectedCategory }],
     enabled: !!user,
   });
   
@@ -51,6 +51,8 @@ const SpacesPage: FC = () => {
     queryKey: ['/api/groups/categories'],
     enabled: !!user,
   });
+  
+  console.log("Categories:", categories);
   
   // Create space mutation
   const createSpaceMutation = useMutation({
@@ -109,6 +111,12 @@ const SpacesPage: FC = () => {
     return mySpaces.some(space => space.group_id === groupId);
   };
 
+  // Handlers for category selection
+  const handleCategoryChange = (value: string) => {
+    // If "all" is selected, pass empty string to the API
+    setSelectedCategory(value);
+  };
+
   return (
     <MainLayout showRightSidebar={false}>
       <div className="space-y-6">
@@ -157,11 +165,13 @@ const SpacesPage: FC = () => {
                       <SelectValue placeholder="Select a category" />
                     </SelectTrigger>
                     <SelectContent>
-                      {categories.map(category => (
-                        <SelectItem key={category.id} value={category.id}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
+                      {categories
+                        .filter(category => !!category.id && category.id !== "")
+                        .map(category => (
+                          <SelectItem key={category.id} value={category.id}>
+                            {category.name}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -207,17 +217,19 @@ const SpacesPage: FC = () => {
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+          <Select value={selectedCategory} onValueChange={handleCategoryChange}>
             <SelectTrigger className="w-full md:w-[180px]">
               <SelectValue placeholder="All Categories" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All Categories</SelectItem>
-              {categories.map(category => (
-                <SelectItem key={category.id} value={category.id}>
-                  {category.name}
-                </SelectItem>
-              ))}
+              <SelectItem value="all">All Categories</SelectItem>
+              {categories
+                .filter(category => !!category.id && category.id !== "")
+                .map(category => (
+                  <SelectItem key={category.id} value={category.id}>
+                    {category.name}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         </div>
@@ -248,7 +260,7 @@ const SpacesPage: FC = () => {
                     variant="outline" 
                     onClick={() => {
                       setSearchQuery("");
-                      setSelectedCategory("");
+                      setSelectedCategory("all");
                     }}
                   >
                     Clear Filters
@@ -294,7 +306,7 @@ const SpacesPage: FC = () => {
                           ))}
                         </div>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                          {space.memberCount || 0} member{space.memberCount !== 1 ? 's' : ''}
+                          {(space.memberCount ?? 0)} member{(space.memberCount ?? 0) !== 1 ? 's' : ''}
                         </span>
                       </div>
                     </CardContent>
@@ -341,7 +353,7 @@ const SpacesPage: FC = () => {
                   <Button onClick={() => setDialogOpen(true)}>Create a Space</Button>
                   <Button 
                     variant="outline" 
-                    onClick={() => document.querySelector('[data-value="discover"]')?.click()}
+                    onClick={() => (document.querySelector('[data-value="discover"]') as HTMLElement)?.click()}
                   >
                     Discover Spaces
                   </Button>
@@ -386,7 +398,7 @@ const SpacesPage: FC = () => {
                           ))}
                         </div>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                          {space.memberCount || 0} member{space.memberCount !== 1 ? 's' : ''}
+                          {(space.memberCount ?? 0)} member{(space.memberCount ?? 0) !== 1 ? 's' : ''}
                         </span>
                       </div>
                     </CardContent>
@@ -428,7 +440,7 @@ const SpacesPage: FC = () => {
                       <div className="flex justify-between items-start">
                         <CardTitle className="text-lg">{space.name}</CardTitle>
                         <div className="px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 rounded text-xs">
-                          {space.memberCount || 0} members
+                          {(space.memberCount ?? 0)} members
                         </div>
                       </div>
                       {space.topic_tag && (
@@ -454,7 +466,7 @@ const SpacesPage: FC = () => {
                           ))}
                         </div>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                          {space.previewMembers?.length && space.previewMembers.length < space.memberCount
+                          {space.memberCount != null && space.previewMembers && space.previewMembers.length < space.memberCount
                             ? `+${space.memberCount - space.previewMembers.length} more`
                             : ''}
                         </span>
