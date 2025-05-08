@@ -1,4 +1,4 @@
-import { FC, useState } from "react";
+import { FC, useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardFooter } from "@/components/ui/card";
 import { AvatarWithEmotion } from "@/components/ui/avatar-with-emotion";
 import { AvatarWithRing } from "@/components/ui/avatar-with-ring";
@@ -34,6 +34,9 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   const { user } = useAuth();
   const [commentText, setCommentText] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
+  const [localReactionId, setLocalReactionId] = useState<number | null>(null);
+  const [localReactionCount, setLocalReactionCount] = useState(post.reactions_count || 0);
 
   // Get comments for this post - use full API URL path in the queryKey
   const { data: comments = [], refetch: refetchComments } = useQuery<Comment[]>({
@@ -47,23 +50,54 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
     enabled: !!user?.user_id && !!post.post_id,
   });
 
+  // Update local state when userReaction data changes
+  useEffect(() => {
+    if (userReaction && typeof userReaction === 'object' && 'reaction_id' in userReaction) {
+      setIsLiked(true);
+      setLocalReactionId(userReaction.reaction_id);
+    } else {
+      setIsLiked(false);
+      setLocalReactionId(null);
+    }
+  }, [userReaction]);
+
   // Like/unlike post mutation
   const toggleLikeMutation = useMutation({
     mutationFn: async () => {
-      if (userReaction && typeof userReaction === 'object' && 'reaction_id' in userReaction) {
-        return apiRequest('DELETE', `/api/posts/${post.post_id}/reactions/${userReaction.reaction_id}`);
+      if (isLiked) {
+        // Optimistically update UI
+        setIsLiked(false);
+        setLocalReactionCount(prev => Math.max(0, prev - 1));
+        
+        // Make API call
+        return apiRequest('DELETE', `/api/posts/${post.post_id}/reactions/${localReactionId}`);
       } else {
-        return apiRequest('POST', `/api/posts/${post.post_id}/reactions`, {
+        // Optimistically update UI
+        setIsLiked(true);
+        setLocalReactionCount(prev => prev + 1);
+        
+        // Make API call
+        const response = await apiRequest('POST', `/api/posts/${post.post_id}/reactions`, {
           reaction_type: 'like'
         });
+        
+        // Store the new reaction ID
+        if (response && typeof response === 'object' && 'reaction_id' in response) {
+          setLocalReactionId(response.reaction_id);
+        }
+        
+        return response;
       }
     },
+    onError: () => {
+      // Revert optimistic updates if the API call fails
+      setIsLiked(!isLiked);
+      setLocalReactionCount(prev => isLiked ? prev + 1 : Math.max(0, prev - 1));
+    },
     onSuccess: () => {
-      // Invalidate the user reaction query
+      // Invalidate relevant queries
       queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}/reaction/${user?.user_id}`] });
-      // Invalidate post list to update reaction counts
       queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
-      // Also invalidate any queries for this specific post
       queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}`] });
     }
   });
@@ -186,12 +220,12 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
             className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
             onClick={() => toggleLikeMutation.mutate()}
           >
-            {userReaction && typeof userReaction === 'object' && 'reaction_id' in userReaction ? (
+            {isLiked ? (
               <Heart className="mr-1.5 h-4 w-4 fill-red-500 text-red-500" />
             ) : (
               <Heart className="mr-1.5 h-4 w-4" />
             )}
-            <span className="text-xs">{post.reactions_count || 0}</span>
+            <span className="text-xs">{localReactionCount}</span>
           </Button>
           
           <Button 
