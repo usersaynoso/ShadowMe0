@@ -14,13 +14,11 @@ Emotion Ring — Spec & Implementation Guide
      ]'>
   <img class="avatar" src="user.jpg" alt="User avatar" />   <!-- 2 -->
   <div class="ring"></div>                                   <!-- 3 -->
-  <div class="tooltip" role="tooltip" aria-hidden="true"></div><!-- 4 -->
 </div>
 
-	1.	.avatar‑ring – relative positioning anchor.
+	1.	.avatar‑ring – relative positioning anchor (can be a link for navigation).
 	2.	.avatar – the face; can be any shape (circle or rounded‑square).
 	3.	.ring – purely decorative gradient halo built in CSS.
-	4.	.tooltip – appears when the pointer enters a colour slice; hidden otherwise.
 
 ⸻
 
@@ -76,8 +74,7 @@ document.querySelectorAll('.avatar-ring').forEach(initRing);
 
 function initRing(wrapper){
   const emotions = JSON.parse(wrapper.dataset.emotions);   // [{name,color},…]
-  const ring      = wrapper.querySelector('.ring');
-  const tooltip   = wrapper.querySelector('.tooltip');
+  const ring = wrapper.querySelector('.ring');
 
   /* 3‑A  ─ build the conic‑gradient string */
   if (emotions.length === 1) {
@@ -102,63 +99,25 @@ function initRing(wrapper){
     gradientString += ')';
     ring.style.setProperty('--gradient', gradientString);
   }
-
-  /* 3‑B  ─ pointer tracking for tooltips */
-  wrapper.addEventListener('pointermove', e=>{
-    const {left,top,width,height} = wrapper.getBoundingClientRect();
-    const cx = left + width/2,  cy = top + height/2;
-    const dx = e.clientX - cx,  dy = e.clientY - cy;
-    const angle = (Math.atan2(dy,dx)*180/Math.PI + 360 + 90) % 360; // 0° at top
-    const index = Math.floor(angle / (360/emotions.length));
-    const emo   = emotions[index];
-
-    tooltip.textContent = emo.name;
-    tooltip.style.setProperty('--tip-hue', emo.color);
-    positionTooltip(tooltip, e.clientX, e.clientY - 12);
-    tooltip.removeAttribute('aria-hidden');
-  });
-  wrapper.addEventListener('pointerleave', ()=>tooltip.setAttribute('aria-hidden','true'));
 }
 
-function positionTooltip(el,x,y){
-  el.style.left = x +'px';
-  el.style.top  = y +'px';
-}
-
-Key idea: map cursor angle → segment index to reveal the correct emotion label.
+Key idea: The colors flow clockwise in order of the emotions provided, creating a radial color ring.
 
 ⸻
 
-4. Tooltip styling
+4. Profile Navigation
 
-.tooltip{
-  position:fixed;          /* lives above everything */
-  padding:.35em .75em;
-  font:600 14px/1.2 "Inter",sans-serif;
-  color:#fff;
-  background:#141414;
-  border-radius:8px;
-  box-shadow:0 4px 16px rgba(0,0,0,.3);
-  transform:translate(-50%,-100%);  /* center above pointer */
-  white-space:nowrap;
-  pointer-events:none;
-  opacity:0;
-  transition:opacity .15s ease, transform .15s ease;
-}
-.tooltip::after{          /* speech‑bubble tail */
-  content:'';
-  position:absolute;
-  left:50%; bottom:-5px;
-  width:10px; height:10px;
-  background:inherit;
-  transform:translateX(-50%) rotate(45deg);
-}
-.tooltip[aria-hidden="true"]{
-  opacity:0; transform:translate(-50%,-90%);
-}
-.tooltip:not([aria-hidden]){
-  opacity:1; transform:translate(-50%,-110%);
-}
+The avatar-ring can be wrapped in a link to navigate to the user's profile page:
+
+```tsx
+<Link href={`/profile/${user.id}`}>
+  <a className="avatar-ring">
+    {/* Ring content */}
+  </a>
+</Link>
+```
+
+This allows the whole avatar with its emotion ring to serve as a navigation element.
 
 ⸻
 
@@ -173,13 +132,13 @@ Key idea: map cursor angle → segment index to reveal the correct emotion label
 
 Behaviour matrix
 
-# emotions	Gradient formula	Segment size	Tooltip logic
-1	radial-gradient(…) (solid)	100 %	Always that emotion
-2	linear-gradient(to right, …)	50 % left / right	Compare angle < 180°
-≥3	conic-gradient(…) (see above)	360 ° / n	Angle‑to‑index map
+# emotions	Gradient formula	Segment size
+1	radial-gradient(…) (solid)	100 %
+2	linear-gradient(to right, …)	50 % left / right
+≥3	conic-gradient(…) (see above)	360 ° / n
 
 ⸻
 
 Result
 
-You now have a halo that perfectly echoes the soft, radiant spectrum in the reference asset, yet gracefully scales to any count of emotions. The updated implementation provides a more visually appealing radial gradient effect, with colors smoothly fading at both inner and outer edges. Each slice whispers its feeling through a sleek, dark tooltip whenever a user's cursor lingers, ensuring both beauty and clarity in the Shadow Me experience. 
+You now have a halo that perfectly echoes the soft, radiant spectrum in the reference asset, yet gracefully scales to any count of emotions. The updated implementation provides a more visually appealing radial gradient effect, with colors smoothly fading at both inner and outer edges. The avatar and ring can be clicked to navigate to the user's profile, providing a seamless and intuitive user experience in the Shadow Me application. 

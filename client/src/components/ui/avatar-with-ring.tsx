@@ -13,6 +13,7 @@ interface AvatarWithRingProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg';
   showOnlineStatus?: boolean;
+  disableLink?: boolean;
 }
 
 export const AvatarWithRing: FC<AvatarWithRingProps> = ({ 
@@ -20,7 +21,8 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
   emotionIds,
   className = "",
   size = "md",
-  showOnlineStatus = true
+  showOnlineStatus = true,
+  disableLink = false
 }) => {
   // Use the emotion ids from props or the user's lastEmotions
   const selectedEmotionIds = emotionIds || user.lastEmotions || [];
@@ -74,6 +76,9 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
     lg: 'lg'
   } as const;
 
+  // Create profile link if enabled
+  const profileLink = !disableLink ? `/profile/${user.user_id}` : undefined;
+
   return (
     <AvatarRing 
       emotions={emotions}
@@ -83,6 +88,7 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
       blur={size === 'sm' ? 20 : size === 'md' ? 30 : 40}
       outerGlow={size === 'sm' ? 12 : size === 'md' ? 20 : 30}
       rotation={120}
+      href={profileLink}
     >
       <Avatar className={cn("border bg-white dark:bg-gray-800", dimensions[size].avatar)}>
         <AvatarImage 

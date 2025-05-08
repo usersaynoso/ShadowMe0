@@ -102,28 +102,6 @@
   backdrop-filter: blur(4px);
 }
 
-/* Tooltip animation for avatar-ring */
-.tooltip[aria-hidden="true"] {
-  opacity: 0; 
-  transform: translate(-50%, -90%);
-}
-
-.tooltip:not([aria-hidden]) {
-  opacity: 1; 
-  transform: translate(-50%, -110%);
-}
-
-.tooltip::after {
-  content: '';
-  position: absolute;
-  left: 50%; 
-  bottom: -5px;
-  width: 10px; 
-  height: 10px;
-  background: inherit;
-  transform: translateX(-50%) rotate(45deg);
-}
-
 /* Avatar Ring styles */
 .avatar-ring {
   --ring-thickness: 10px;
