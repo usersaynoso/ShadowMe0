@@ -36,7 +36,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   const [showAllComments, setShowAllComments] = useState(false);
 
   // Get comments for this post - use full API URL path in the queryKey
-  const { data: comments = [] } = useQuery<Comment[]>({
+  const { data: comments = [], refetch: refetchComments } = useQuery<Comment[]>({
     queryKey: [`/api/posts/${post.post_id}/comments`],
     enabled: !!post.post_id, // Only run query if post_id exists
   });
@@ -73,9 +73,13 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
     mutationFn: async (body: string) => {
       return apiRequest('POST', `/api/posts/${post.post_id}/comments`, { body });
     },
-    onSuccess: () => {
-      // Invalidate comments for this post
-      queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}/comments`] });
+    onSuccess: async () => {
+      // Directly refetch comments to ensure immediate update
+      await refetchComments();
+      
+      // Also invalidate related queries
+      queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
+      
       setCommentText("");
       // Show all comments after adding a new one
       setShowAllComments(true);
