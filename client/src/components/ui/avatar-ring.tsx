@@ -8,9 +8,7 @@ interface AvatarRingProps {
   children: ReactNode;
   className?: string;
   thickness?: number;
-  blur?: number;
   rotation?: number;
-  outerGlow?: number;
   href?: string; // Add profile link URL
 }
 
@@ -18,10 +16,8 @@ export const AvatarRing: FC<AvatarRingProps> = ({
   emotions, 
   children,
   className,
-  thickness = 10,
-  blur = 30,
-  rotation = 120,
-  outerGlow = 20,
+  thickness = 14,
+  rotation = 0, // Default to no rotation
   href
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -33,19 +29,20 @@ export const AvatarRing: FC<AvatarRingProps> = ({
     
     if (!wrapper || !ring || emotions.length === 0) return;
     
-    // Build the conic gradient
-    const step = 100 / emotions.length;
-    
+    // Build the conic gradient with sharp color transitions
     if (emotions.length === 1) {
       // For a single emotion, use a solid color
       ring.style.setProperty('--gradient', emotions[0].color);
     } else {
-      // For multiple emotions, create a clockwise conic gradient
+      // For multiple emotions, create a clean segmented ring
       let gradientString = 'conic-gradient(';
       
+      const step = 100 / emotions.length;
       emotions.forEach((emotion, index) => {
         const startPercent = index * step;
         const endPercent = (index + 1) * step;
+        
+        // Add sharp color transitions
         gradientString += `${emotion.color} ${startPercent}%, ${emotion.color} ${endPercent}%`;
         
         // Add comma if not the last element
@@ -69,20 +66,13 @@ export const AvatarRing: FC<AvatarRingProps> = ({
         ref={ringRef} 
         className="ring absolute pointer-events-none"
         style={{
-          inset: `calc(-1 * var(--ring-thickness) - var(--ring-outer-glow))`,
+          inset: `calc(-1 * ${thickness}px)`,
           borderRadius: "50%",
           background: "var(--gradient)",
-          mask: `
-            radial-gradient(
-              farthest-side, 
-              transparent calc(100% - var(--ring-thickness) - var(--ring-outer-glow) * 2), 
-              #000 calc(100% - var(--ring-thickness) - var(--ring-outer-glow)),
-              #000 calc(100% - var(--ring-outer-glow)),
-              transparent 100%
-            )
-          `,
-          filter: "blur(var(--ring-blur)) brightness(1.2) saturate(1.4)",
-          animation: "spin var(--ring-rotation) linear infinite"
+          // Simple ring mask with sharp edges
+          mask: `radial-gradient(farthest-side, transparent calc(100% - ${thickness}px), #000 0)`,
+          // No blur or glow effects for a clean look
+          animation: rotation ? `spin ${rotation}s linear infinite` : 'none'
         }}
       />
     </>
@@ -91,9 +81,7 @@ export const AvatarRing: FC<AvatarRingProps> = ({
   // Common styles for both Link and div
   const commonStyles = {
     '--ring-thickness': `${thickness}px`,
-    '--ring-blur': `${blur}px`,
     '--ring-rotation': `${rotation}s`,
-    '--ring-outer-glow': `${outerGlow}px`,
   } as React.CSSProperties;
   
   // If we have an href, render a Link

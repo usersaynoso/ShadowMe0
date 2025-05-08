@@ -1,6 +1,6 @@
 Emotion Ring — Spec & Implementation Guide
 
-(designed to match the look‑and‑feel in the reference image while scaling to an unlimited palette of emotions)
+(designed for a clean, simple display of emotion colors in a single ring)
 
 ⸻
 
@@ -18,7 +18,7 @@ Emotion Ring — Spec & Implementation Guide
 
 	1.	.avatar‑ring – relative positioning anchor (can be a link for navigation).
 	2.	.avatar – the face; can be any shape (circle or rounded‑square).
-	3.	.ring – purely decorative gradient halo built in CSS.
+	3.	.ring – decorative color ring built in CSS.
 
 ⸻
 
@@ -26,9 +26,7 @@ Emotion Ring — Spec & Implementation Guide
 
 .avatar-ring{
   --ring-thickness:   10px;      /* visible band width       */
-  --ring-blur:        30px;      /* outer glow softness      */
-  --ring-rotation:   120s;       /* full spin duration       */
-  --ring-outer-glow:  20px;      /* outer fade to transparent */
+  --ring-rotation:    0s;        /* rotation (0s for static) */
 
   display:inline-block;
   position:relative;
@@ -40,34 +38,22 @@ Emotion Ring — Spec & Implementation Guide
   object-fit:cover;
 }
 
-/* gradient halo */
+/* color ring */
 .ring{
   position:absolute;
-  inset:calc(-1*var(--ring-thickness) - var(--ring-outer-glow));  /* bleed outside the avatar */
+  inset:calc(-1*var(--ring-thickness));  /* bleed outside the avatar */
   border-radius:50%;
-  pointer-events:none;                      /* mouse events handled in JS */
-  --gradient: transparent;                  /* will be overwritten */
+  pointer-events:none;
+  --gradient: transparent;       /* will be overwritten */
   background:var(--gradient);
-  mask:
-    radial-gradient(
-      farthest-side, 
-      transparent calc(100% - var(--ring-thickness) - var(--ring-outer-glow) * 2), 
-      #000 calc(100% - var(--ring-thickness) - var(--ring-outer-glow)),
-      #000 calc(100% - var(--ring-outer-glow)),
-      transparent 100%
-    );
-  filter:blur( var(--ring-blur) )
-          brightness(1.2)      /* gentle glow */
-          saturate(1.4);
-  animation:spin var(--ring-rotation) linear infinite;
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--ring-thickness)), #000 0);
 }
-@keyframes spin{from{transform:rotate(0)} to{transform:rotate(360deg)}}
 
-The mask creates a ring with a gradual fade to transparent at both inner and outer edges, producing a soft radial glow effect that highlights all emotion colors simultaneously.
+The mask creates a clean ring with sharp edges that surrounds the avatar.
 
 ⸻
 
-3. Unlimited‑colour gradient algorithm
+3. Conic gradient for segmented colors
 
 /* attach once after DOM ready */
 document.querySelectorAll('.avatar-ring').forEach(initRing);
@@ -76,18 +62,20 @@ function initRing(wrapper){
   const emotions = JSON.parse(wrapper.dataset.emotions);   // [{name,color},…]
   const ring = wrapper.querySelector('.ring');
 
-  /* 3‑A  ─ build the conic‑gradient string */
+  /* Build the conic gradient with sharp color segments */
   if (emotions.length === 1) {
     // For a single emotion, use a solid color
     ring.style.setProperty('--gradient', emotions[0].color);
   } else {
-    // For multiple emotions, create a clockwise conic gradient
+    // For multiple emotions, create a clean segmented ring
     let gradientString = 'conic-gradient(';
     
     const step = 100 / emotions.length;
     emotions.forEach((emotion, index) => {
       const startPercent = index * step;
       const endPercent = (index + 1) * step;
+      
+      // Add sharp color transitions
       gradientString += `${emotion.color} ${startPercent}%, ${emotion.color} ${endPercent}%`;
       
       // Add comma if not the last element
@@ -101,7 +89,7 @@ function initRing(wrapper){
   }
 }
 
-Key idea: The colors flow clockwise in order of the emotions provided, creating a radial color ring.
+Key idea: The colors form a clean segmented ring with each emotion having an equal area.
 
 ⸻
 
@@ -122,23 +110,19 @@ This allows the whole avatar with its emotion ring to serve as a navigation elem
 ⸻
 
 5. Accessibility & performance notes
-	•	Reduced‑motion: Respect prefers-reduced-motion; pause the spin if requested.
-	•	Keyboard focus: Add focus‑ring support by turning each segment into an ARIA‑labelled <button> if full accessibility is needed.
-	•	Colour contrast: Allow a darker inner‑shadow (box-shadow: inset 0 0 0 2px #0003) to keep avatars legible against bright halos.
-	•	Batch rendering: Generate gradients server‑side for static exports (SVG) to lighten client CPU on long lists.
-	• Responsive sizing: Adjust `--ring-thickness` and `--ring-outer-glow` values based on avatar size for consistent visual appearance across different dimensions.
+	•	Colour contrast: Consider adding a thin white border to the avatar to separate it from the emotion ring.
+	•	Responsive sizing: Adjust `--ring-thickness` based on avatar size for consistent visual appearance across different dimensions.
 
 ⸻
 
 Behaviour matrix
 
 # emotions	Gradient formula	Segment size
-1	radial-gradient(…) (solid)	100 %
-2	linear-gradient(to right, …)	50 % left / right
-≥3	conic-gradient(…) (see above)	360 ° / n
+1	solid-color	100%
+≥2	conic-gradient	360° / n per emotion
 
 ⸻
 
 Result
 
-You now have a halo that perfectly echoes the soft, radiant spectrum in the reference asset, yet gracefully scales to any count of emotions. The updated implementation provides a more visually appealing radial gradient effect, with colors smoothly fading at both inner and outer edges. The avatar and ring can be clicked to navigate to the user's profile, providing a seamless and intuitive user experience in the Shadow Me application. 
+You now have a clean, modern emotion ring that displays all selected emotions with equal prominence. The simplified design with distinct color segments provides clear visual feedback about the user's emotional state. The avatar and ring can be clicked to navigate to the user's profile, providing a seamless and intuitive user experience in the Shadow Me application. 

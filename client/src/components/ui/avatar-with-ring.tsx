@@ -46,15 +46,18 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
   const dimensions = {
     sm: {
       avatar: 'h-8 w-8',
-      initials: 'text-xs'
+      initials: 'text-xs',
+      thickness: 4
     },
     md: {
       avatar: 'h-10 w-10',
-      initials: 'text-sm'
+      initials: 'text-sm',
+      thickness: 6
     },
     lg: {
       avatar: 'h-16 w-16',
-      initials: 'text-lg'
+      initials: 'text-lg',
+      thickness: 10
     }
   };
 
@@ -83,14 +86,12 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
     <AvatarRing 
       emotions={emotions}
       className={cn("relative", className)}
-      // Adjust thickness, blur, rotation and outer glow based on size
-      thickness={size === 'sm' ? 6 : size === 'md' ? 10 : 14}
-      blur={size === 'sm' ? 20 : size === 'md' ? 30 : 40}
-      outerGlow={size === 'sm' ? 12 : size === 'md' ? 20 : 30}
-      rotation={120}
+      // Simple thickness based on size, no blur or glow
+      thickness={dimensions[size].thickness}
+      // No rotation by default
       href={profileLink}
     >
-      <Avatar className={cn("border bg-white dark:bg-gray-800", dimensions[size].avatar)}>
+      <Avatar className={cn("border-2 border-white dark:border-gray-800 bg-white dark:bg-gray-800", dimensions[size].avatar)}>
         <AvatarImage 
           src={user.profile?.avatar_url} 
           alt={user.profile?.display_name || "User"} 
