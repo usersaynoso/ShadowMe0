@@ -80,15 +80,28 @@ function initRing(wrapper){
   const tooltip   = wrapper.querySelector('.tooltip');
 
   /* 3‑A  ─ build the conic‑gradient string */
-  const step = 100 / emotions.length;
-  let acc = 0;
-  const segments = emotions.map(e=>{
-      const start = acc.toFixed(4);
-      acc += step;
-      const end   = acc.toFixed(4);
-      return `${e.color} ${start}% ${end}%`;  // "orange 0% 33.333%"
-  }).join(', ');
-  ring.style.setProperty('--gradient',`conic-gradient(${segments})`);
+  if (emotions.length === 1) {
+    // For a single emotion, use a solid color
+    ring.style.setProperty('--gradient', emotions[0].color);
+  } else {
+    // For multiple emotions, create a clockwise conic gradient
+    let gradientString = 'conic-gradient(';
+    
+    const step = 100 / emotions.length;
+    emotions.forEach((emotion, index) => {
+      const startPercent = index * step;
+      const endPercent = (index + 1) * step;
+      gradientString += `${emotion.color} ${startPercent}%, ${emotion.color} ${endPercent}%`;
+      
+      // Add comma if not the last element
+      if (index < emotions.length - 1) {
+        gradientString += ', ';
+      }
+    });
+    
+    gradientString += ')';
+    ring.style.setProperty('--gradient', gradientString);
+  }
 
   /* 3‑B  ─ pointer tracking for tooltips */
   wrapper.addEventListener('pointermove', e=>{

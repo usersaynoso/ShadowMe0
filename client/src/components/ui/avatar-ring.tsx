@@ -34,16 +34,28 @@ export const AvatarRing: FC<AvatarRingProps> = ({
     
     // Build the conic gradient
     const step = 100 / emotions.length;
-    let acc = 0;
-    const segments = emotions.map(e => {
-      const start = acc.toFixed(4);
-      acc += step;
-      const end = acc.toFixed(4);
-      return `${e.color} ${start}% ${end}%`;
-    }).join(', ');
     
-    // Set the gradient with 0deg starting position to ensure proper circular display
-    ring.style.setProperty('--gradient', `conic-gradient(from 0deg, ${segments})`);
+    if (emotions.length === 1) {
+      // For a single emotion, use a solid color
+      ring.style.setProperty('--gradient', emotions[0].color);
+    } else {
+      // For multiple emotions, create a clockwise conic gradient
+      let gradientString = 'conic-gradient(';
+      
+      emotions.forEach((emotion, index) => {
+        const startPercent = index * step;
+        const endPercent = (index + 1) * step;
+        gradientString += `${emotion.color} ${startPercent}%, ${emotion.color} ${endPercent}%`;
+        
+        // Add comma if not the last element
+        if (index < emotions.length - 1) {
+          gradientString += ', ';
+        }
+      });
+      
+      gradientString += ')';
+      ring.style.setProperty('--gradient', gradientString);
+    }
     
     // Handle pointer interactions
     const handlePointerMove = (e: PointerEvent) => {

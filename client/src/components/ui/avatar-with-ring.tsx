@@ -31,12 +31,12 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
   });
   
   // Map emotion IDs to actual emotion objects
-  // Ensure they're in the same order as the selectedEmotionIds to maintain color consistency
+  // Important: preserve the order of the emotions as they appear in selectedEmotionIds
+  // for consistent clockwise arrangement
   const emotions = selectedEmotionIds
     .map(id => {
       const emotion = allEmotions.find(e => e.id === id);
-      if (emotion) return emotion;
-      return null;
+      return emotion || null;
     })
     .filter(Boolean) as Emotion[];
   
