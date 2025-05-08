@@ -1,5 +1,5 @@
 import { FC, useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AvatarWithEmotion } from "@/components/ui/avatar-with-emotion";
 import { AvatarWithRing } from "@/components/ui/avatar-with-ring";
@@ -12,7 +12,7 @@ import { ChevronDown, Globe, Image, PenSquare, Users, Lock, CalendarIcon, Clock,
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { Emotion, FriendGroup } from "@/types";
+import { Emotion, FriendGroup, Post } from "@/types";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -22,9 +22,13 @@ import { cn } from "@/lib/utils";
 
 interface CreatePostDialogProps {
   children?: React.ReactNode;
+  postToEdit?: Post;
+  onEditSuccess?: (post: Post) => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
+export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children, postToEdit, onEditSuccess, open: controlledOpen, onOpenChange }) => {
   const { user } = useAuth();
   const [content, setContent] = useState("");
   const [selectedEmotions, setSelectedEmotions] = useState<number[]>([]);
@@ -57,60 +61,311 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
   // Create post mutation
   const createPostMutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      return apiRequest('POST', '/api/posts', formData);
+      const response = await apiRequest('POST', '/api/posts', formData);
+      // Convert to JSON to get the post data
+      try {
+        return await response.json();
+      } catch (e) {
+        console.error('Error parsing response as JSON:', e);
+        return { success: true };
+      }
     },
-    onSuccess: () => {
+    onSuccess: (newPost) => {
       // More specific query invalidations to ensure feed updates
-      queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
-      queryClient.invalidateQueries({ queryKey: [`/api/users/${user?.user_id}/posts`] });
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/posts'],
+        exact: false
+      });
+      queryClient.invalidateQueries({ 
+        queryKey: [`/api/users/${user?.user_id}/posts`],
+        exact: false
+      });
+      
+      // Explicitly force a refetch for active queries
+      queryClient.refetchQueries({
+        queryKey: ['/api/posts'],
+        type: 'active'
+      });
       
       setShowSuccess(true);
+      
+      // Call the onEditSuccess callback if provided
+      if (onEditSuccess && newPost && newPost.post_id) {
+        try {
+          onEditSuccess(newPost as Post); 
+        } catch (e) {
+          console.error('Error in onEditSuccess callback:', e);
+        }
+      }
       
       // Longer delay to ensure queries have time to refetch before closing
       setTimeout(() => {
         setShowSuccess(false);
         setOpen(false);
+        if (onOpenChange) onOpenChange(false);
         resetForm();
       }, 2500); // Increased from 1800ms to 2500ms
     }
   });
 
+  // Edit post mutation
+  const [editError, setEditError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  
+  const editPostMutation = useMutation({
+    mutationFn: async (data: any) => {
+      setEditError(null);
+      console.log('editPostMutation starting with data:', data);
+      
+      try {
+        // Make the request
+        const res = await apiRequest('PUT', `/api/posts/${postToEdit?.post_id}`, data);
+        console.log('PUT response:', { 
+          status: res.status, 
+          ok: res.ok, 
+          contentType: res.headers.get('Content-Type') 
+        });
+        
+        if (!res.ok) {
+          // Handle error status codes
+          let errorMsg = '';
+          if (res.status === 500) {
+            errorMsg = 'Server error: Unable to update post';
+          } else if (res.status === 400) {
+            errorMsg = 'Invalid data: Please check your inputs';
+          } else if (res.status === 403) {
+            errorMsg = 'You do not have permission to edit this post';
+          } else if (res.status === 404) {
+            errorMsg = 'Post not found';
+          } else {
+            errorMsg = `Error: ${res.statusText || 'Unknown error'}`;
+          }
+          
+          // Try to get more details from response body
+          try {
+            const errorData = await res.json();
+            if (errorData && errorData.message) {
+              errorMsg += ` - ${errorData.message}`;
+            }
+          } catch (jsonErr) {
+            // Ignore JSON parsing errors for error responses
+          }
+          
+          throw new Error(errorMsg);
+        }
+        
+        // Try to parse the response as JSON
+        try {
+          const text = await res.text();
+          console.log('Response text:', text);
+          
+          // If we got a valid JSON response, parse and return it
+          if (text && text.trim()) {
+            try {
+              return JSON.parse(text);
+            } catch (parseError) {
+              console.error('Failed to parse response as JSON:', parseError);
+              // Even if parsing failed, if status is OK consider it a success
+              if (res.ok) {
+                return { success: true };
+              }
+              throw new Error('Invalid response format');
+            }
+          } else if (res.ok) {
+            // Empty response but successful status
+            return { success: true };
+          }
+        } catch (textError) {
+          console.error('Error reading response text:', textError);
+          // Still consider it a success if status is OK
+          if (res.ok) {
+            return { success: true };
+          }
+          throw new Error('Failed to read response');
+        }
+      } catch (err: any) {
+        console.error('Edit post request failed:', err);
+        setEditError(err.message || 'Failed to update post');
+        throw err;
+      }
+    },
+    onSuccess: (updatedPost) => {
+      console.log('Edit post successful:', updatedPost);
+      
+      // More aggressive query invalidation with explicit refetch
+      // Force immediate refetch of all post-related queries 
+      queryClient.invalidateQueries({ 
+        queryKey: ['/api/posts'],
+        refetchType: 'all',
+        exact: false          // Include all queries that start with this key
+      });
+      
+      // Invalidate specific user posts queries
+      queryClient.invalidateQueries({ 
+        queryKey: [`/api/users/${user?.user_id}/posts`],
+        refetchType: 'all'
+      });
+      
+      // More direct approach: try to update the cache directly for immediate UI update
+      try {
+        // Update posts in global feed
+        const postsData = queryClient.getQueryData<Post[]>(['/api/posts']);
+        if (postsData && updatedPost) {
+          const updatedPosts = postsData.map(post => {
+            if (post.post_id === postToEdit?.post_id) {
+              // Create a complete merged object to ensure all properties are preserved
+              const mergedPost = {
+                ...post,                   // Start with all original post data
+                ...updatedPost,            // Overlay with new data from update
+                content: content,          // Explicitly set edited fields to ensure they're updated
+                emotion_ids: selectedEmotions,
+                audience: audience,
+                // Handle audience details update
+                audienceDetails: audience === 'friend_group' 
+                  ? { ids: selectedCircles, type: 'friend_group' } 
+                  : post.audienceDetails
+              };
+              return mergedPost;
+            }
+            return post;
+          });
+          
+          // Set the updated data directly in the cache
+          queryClient.setQueryData(['/api/posts'], updatedPosts);
+        }
+        
+        // Also update user-specific posts if that query exists
+        const userPostsData = queryClient.getQueryData<Post[]>([`/api/users/${user?.user_id}/posts`]);
+        if (userPostsData && updatedPost) {
+          const updatedUserPosts = userPostsData.map(post => {
+            if (post.post_id === postToEdit?.post_id) {
+              // Create a complete merged object to ensure all properties are preserved
+              const mergedPost = {
+                ...post,                   // Start with all original post data
+                ...updatedPost,            // Overlay with new data from update
+                content: content,          // Explicitly set edited fields to ensure they're updated
+                emotion_ids: selectedEmotions,
+                audience: audience,
+                // Handle audience details update
+                audienceDetails: audience === 'friend_group' 
+                  ? { ids: selectedCircles, type: 'friend_group' } 
+                  : post.audienceDetails
+              };
+              return mergedPost;
+            }
+            return post;
+          });
+          queryClient.setQueryData([`/api/users/${user?.user_id}/posts`], updatedUserPosts);
+        }
+      } catch (e) {
+        console.error('Error updating cache directly:', e);
+        // If updating cache fails, we rely on the invalidation above
+      }
+      
+      // Explicitly refetch active queries to ensure UI updates
+      // This happens regardless of whether the direct cache update succeeded
+      queryClient.refetchQueries({
+        queryKey: ['/api/posts'],
+        exact: false,
+        type: 'active'
+      });
+      
+      setShowSuccess(true);
+
+      // Call the onEditSuccess callback if provided
+      if (onEditSuccess && updatedPost) {
+        try {
+          onEditSuccess(updatedPost);
+        } catch (e) {
+          console.error('Error in onEditSuccess callback:', e);
+        }
+      }
+      
+      // Close dialog after success
+      setTimeout(() => {
+        setShowSuccess(false);
+        setOpen(false);
+        if (onOpenChange) onOpenChange(false);
+        resetForm();
+      }, 2000);
+    },
+    onError: (error: any) => {
+      console.error('Edit post mutation error:', error);
+      setEditError(error.message || 'Failed to update post');
+      // Make sure the button is enabled again to allow retrying
+      // Don't close the dialog on error
+    }
+  });
+
+  // Pre-fill fields if editing
+  useEffect(() => {
+    if (postToEdit) {
+      setContent(postToEdit.content || "");
+      setSelectedEmotions(postToEdit.emotion_ids || []);
+      setAudience(postToEdit.audience);
+      setSelectedCircles(postToEdit.audience === 'friend_group' && postToEdit.audienceDetails?.ids ? postToEdit.audienceDetails.ids : []);
+      // TODO: handle media preview if needed
+      // TODO: handle shadow session fields if needed
+    } else {
+      resetForm();
+    }
+  }, [postToEdit]);
+
   // Handle form submission
   const handleSubmit = () => {
-    // Emotions are now optional, so we don't need to check for them
+    // Reset error states
+    setEditError(null);
+    setValidationError(null);
     
-    const formData = new FormData();
-    formData.append('content', content);
-    formData.append('emotion_ids', JSON.stringify(selectedEmotions));
-    formData.append('audience', audience);
-    
-    if (audience === 'friend_group' && selectedCircles.length > 0) {
-      formData.append('friend_group_ids', JSON.stringify(selectedCircles));
+    // Client-side validation
+    if (selectedEmotions.length === 0) {
+      setValidationError("Please select at least one emotion");
+      return;
     }
     
-    if (media) {
-      formData.append('media', media);
+    if (postToEdit) {
+      // Edit mode
+      const data: any = {
+        content,
+        emotion_ids: selectedEmotions,
+        audience,
+      };
+      
+      // Only include friend_group_ids if audience is friend_group
+      if (audience === 'friend_group') {
+        data.friend_group_ids = selectedCircles;
+      }
+      
+      console.log('Submitting post edit:', { postId: postToEdit.post_id, data });
+      editPostMutation.mutate(data);
+    } else {
+      // Create mode (existing code)
+      const formData = new FormData();
+      formData.append('content', content);
+      formData.append('emotion_ids', JSON.stringify(selectedEmotions));
+      formData.append('audience', audience);
+      if (audience === 'friend_group' && selectedCircles.length > 0) {
+        formData.append('friend_group_ids', JSON.stringify(selectedCircles));
+      }
+      if (media) {
+        formData.append('media', media);
+      }
+      // Add shadow session data if enabled
+      if (isShadowSession && sessionDate && startTime && endTime) {
+        formData.append('is_shadow_session', 'true');
+        formData.append('session_title', sessionTitle);
+        const startDate = new Date(sessionDate);
+        const [startHour, startMinute] = startTime.split(':').map(Number);
+        startDate.setHours(startHour, startMinute);
+        const endDate = new Date(sessionDate);
+        const [endHour, endMinute] = endTime.split(':').map(Number);
+        endDate.setHours(endHour, endMinute);
+        formData.append('starts_at', startDate.toISOString());
+        formData.append('ends_at', endDate.toISOString());
+        formData.append('timezone', timezone);
+      }
+      createPostMutation.mutate(formData);
     }
-    
-    // Add shadow session data if enabled
-    if (isShadowSession && sessionDate && startTime && endTime) {
-      formData.append('is_shadow_session', 'true');
-      formData.append('session_title', sessionTitle);
-      
-      const startDate = new Date(sessionDate);
-      const [startHour, startMinute] = startTime.split(':').map(Number);
-      startDate.setHours(startHour, startMinute);
-      
-      const endDate = new Date(sessionDate);
-      const [endHour, endMinute] = endTime.split(':').map(Number);
-      endDate.setHours(endHour, endMinute);
-      
-      formData.append('starts_at', startDate.toISOString());
-      formData.append('ends_at', endDate.toISOString());
-      formData.append('timezone', timezone);
-    }
-    
-    createPostMutation.mutate(formData);
   };
 
   // Reset form after submission
@@ -195,25 +450,33 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
     }
   };
 
+  // Use controlled open state if provided
+  const dialogOpen = controlledOpen !== undefined ? controlledOpen : open;
+  const handleDialogOpenChange = (val: boolean) => {
+    setOpen(val);
+    if (onOpenChange) onOpenChange(val);
+    if (!val) resetForm();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
       <DialogTrigger asChild>
         {children || (
           <Button className="rounded-full px-4 py-2 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 text-sm flex items-center hover:bg-primary-100 dark:hover:bg-primary-800/40">
             <PenSquare className="mr-2 h-4 w-4" />
-            Create Post
+            {postToEdit ? 'Edit Post' : 'Create Post'}
           </Button>
         )}
       </DialogTrigger>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-center">Create Post</DialogTitle>
+          <DialogTitle className="text-center">{postToEdit ? 'Edit Post' : 'Create Post'}</DialogTitle>
         </DialogHeader>
         {showSuccess ? (
           <div className="flex flex-col items-center justify-center py-12 animate-fade-in-out">
             <CheckCircle className="h-16 w-16 text-green-500 mb-4 animate-bounce-in" />
-            <h2 className="text-2xl font-bold text-green-600 mb-2">Post Submitted!</h2>
-            <p className="text-gray-600 dark:text-gray-300 text-center">Your post has been published and will appear in the feed shortly.</p>
+            <h2 className="text-2xl font-bold text-green-600 mb-2">{postToEdit ? 'Post Updated!' : 'Post Submitted!'}</h2>
+            <p className="text-gray-600 dark:text-gray-300 text-center">{postToEdit ? 'Your post has been updated.' : 'Your post has been published and will appear in the feed shortly.'}</p>
           </div>
         ) : (
         <div className="space-y-4">
@@ -336,6 +599,9 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
               selectedEmotions={selectedEmotions}
               onChange={setSelectedEmotions}
             />
+            {validationError && validationError.includes("emotion") && (
+              <div className="text-red-500 text-xs mt-1">{validationError}</div>
+            )}
           </div>
           
           <div className="pt-2">
@@ -470,13 +736,35 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
               </Button>
             </div>
             
-            <Button 
-              type="submit" 
-              disabled={createPostMutation.isPending} 
-              onClick={handleSubmit}
-            >
-              {createPostMutation.isPending ? 'Posting...' : 'Post'}
-            </Button>
+            <DialogFooter className="flex flex-col items-stretch sm:items-end gap-2">
+              {(validationError || editError) && (
+                <div className="text-red-500 text-sm mb-2 p-2 bg-red-50 rounded border border-red-200 w-full">
+                  <strong>{validationError ? 'Validation Error:' : 'Server Error:'}</strong> {validationError || editError}
+                  {editError && <div className="mt-1 text-xs">You can try again or cancel and reopen the dialog.</div>}
+                </div>
+              )}
+              <div className="flex justify-between w-full">
+                <Button 
+                  variant="outline"
+                  disabled={postToEdit ? editPostMutation.isPending : createPostMutation.isPending}
+                  onClick={() => {
+                    if (onOpenChange) onOpenChange(false);
+                    setTimeout(resetForm, 300);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  type="submit" 
+                  disabled={postToEdit ? editPostMutation.isPending : createPostMutation.isPending}
+                  onClick={handleSubmit}
+                >
+                  {postToEdit
+                    ? (editPostMutation.isPending ? 'Saving...' : 'Update')
+                    : (createPostMutation.isPending ? 'Posting...' : 'Post')}
+                </Button>
+              </div>
+            </DialogFooter>
           </div>
         </div>
         )}

@@ -22,9 +22,17 @@ const HomePage: FC = () => {
   });
   
   // Get posts (no emotion filter)
-  const { data: posts = [], isLoading: postsLoading } = useQuery<Post[]>({
+  const { data: posts = [], isLoading: postsLoading, refetch: refetchPosts, isFetching: postsFetching } = useQuery<Post[]>({
     queryKey: ['/api/posts'],
+    refetchOnMount: true,
+    staleTime: 0,
   });
+
+  // Add function to handle post creation/edit completion
+  const handlePostUpdate = () => {
+    console.log('Post updated, refreshing feed...');
+    refetchPosts();
+  };
 
   return (
     <MainLayout>
@@ -43,7 +51,7 @@ const HomePage: FC = () => {
         </div>
         
         <div className="flex flex-wrap gap-2 md:gap-3">
-          <CreatePostDialog>
+          <CreatePostDialog onEditSuccess={handlePostUpdate}>
             <Button id="create-post-trigger" className="rounded-full px-4 py-2 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 text-sm flex items-center hover:bg-primary-100 dark:hover:bg-primary-800/40">
               <PenSquare className="mr-2 h-4 w-4" />
               Create Post
@@ -55,7 +63,7 @@ const HomePage: FC = () => {
             Photo
           </Button>
           
-          <CreatePostDialog>
+          <CreatePostDialog onEditSuccess={handlePostUpdate}>
             <Button className="rounded-full px-4 py-2 bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-sm flex items-center hover:bg-purple-100 dark:hover:bg-purple-800/40">
               <CalendarDays className="mr-2 h-4 w-4" />
               Shadow Session
@@ -79,6 +87,14 @@ const HomePage: FC = () => {
           </Card>
         ) : (
           <>
+            {/* Refreshing indicator */}
+            {postsFetching && !postsLoading && (
+              <div className="flex justify-center items-center gap-2 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg mb-4 text-sm animate-pulse">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>Refreshing posts...</span>
+              </div>
+            )}
+            
             {posts.map(post => {
               if (post.shadow_session) {
                 return (
@@ -94,6 +110,7 @@ const HomePage: FC = () => {
                   key={post.post_id} 
                   post={post}
                   emotions={emotions}
+                  onPostUpdated={handlePostUpdate}
                 />
               );
             })}

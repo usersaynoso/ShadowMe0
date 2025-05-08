@@ -37,13 +37,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CreatePostDialog } from "@/components/create-post-dialog";
 
 interface PostCardProps {
   post: Post;
   emotions: Emotion[];
+  onPostUpdated?: () => void; // Optional callback to notify parent when post is updated
 }
 
-export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
+export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) => {
   const { user } = useAuth();
   const { toast } = useToast();
   const [commentText, setCommentText] = useState("");
@@ -52,6 +54,8 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   const [localReactionId, setLocalReactionId] = useState<number | null>(null);
   const [localReactionCount, setLocalReactionCount] = useState(post.reactions_count || 0);
   const [isVisible, setIsVisible] = useState(true);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingPost, setEditingPost] = useState<Post | null>(null);
 
   // Get comments for this post - use full API URL path in the queryKey
   const { data: comments = [], refetch: refetchComments } = useQuery<Comment[]>({
@@ -298,13 +302,8 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   };
 
   const handleEditPost = () => {
-    // Placeholder for edit post functionality
-    // This would typically open a modal or redirect to an edit page
-    toast({
-      title: "Coming Soon",
-      description: "Edit post functionality will be available soon!",
-      variant: "default",
-    });
+    setEditingPost(post);
+    setEditDialogOpen(true);
   };
 
   const handleReportPost = () => {
@@ -346,204 +345,234 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   }
 
   return (
-    <Card className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
-      <CardHeader className="p-4">
-        <div className="flex items-start space-x-3">
-          <AvatarWithRing 
-            user={post.author}
-            emotionIds={post.emotion_ids}
-          />
+    <>
+      <CreatePostDialog
+        postToEdit={editingPost || undefined}
+        open={editDialogOpen}
+        onOpenChange={(open) => {
+          setEditDialogOpen(open);
+          if (!open) setEditingPost(null);
+        }}
+        onEditSuccess={(updatedPost) => {
+          console.log("Post successfully updated, refreshing data...");
+          // Invalidate queries to update the cache
+          queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
+          queryClient.invalidateQueries({ 
+            queryKey: [`/api/users/${post.author.user_id}/posts`],
+            exact: false
+          });
           
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <h3 className="font-medium text-sm">{post.author.profile?.display_name}</h3>
-              <div className="flex items-center space-x-2">
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
-                </span>
-                <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded text-xs flex items-center">
-                  {getAudienceIcon()}
-                  {getAudienceName()}
-                </span>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                      <MoreHorizontal size={16} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    {isAuthor && (
-                      <>
-                        <DropdownMenuItem className="cursor-pointer" onClick={handleEditPost}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          <span>Edit post</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="cursor-pointer text-red-500 hover:text-red-600 focus:text-red-600" onClick={handleDeletePost}>
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          <span>Delete post</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                      </>
-                    )}
-                    <DropdownMenuItem className="cursor-pointer" onClick={handleCopyLink}>
-                      <Link className="mr-2 h-4 w-4" />
-                      <span>Copy link</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem className="cursor-pointer" onClick={handleCopyText}>
-                      <Copy className="mr-2 h-4 w-4" />
-                      <span>Copy text</span>
-                    </DropdownMenuItem>
-                    {!isAuthor && (
-                      <DropdownMenuItem className="cursor-pointer text-orange-500 hover:text-orange-600 focus:text-orange-600" onClick={handleReportPost}>
-                        <Flag className="mr-2 h-4 w-4" />
-                        <span>Report post</span>
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </div>
+          // Explicitly refetch to ensure UI updates
+          queryClient.refetchQueries({
+            queryKey: ['/api/posts'],
+            type: 'active'
+          });
+          
+          // Notify parent component if callback exists
+          if (onPostUpdated) {
+            onPostUpdated();
+          }
+        }}
+      />
+      <Card className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
+        <CardHeader className="p-4">
+          <div className="flex items-start space-x-3">
+            <AvatarWithRing 
+              user={post.author}
+              emotionIds={post.emotion_ids}
+            />
             
-            <div className="flex space-x-2 mt-1">
-              {post.emotion_ids.map(id => {
-                const emotion = emotions.find(e => e.id === id);
-                if (!emotion) return null;
-                return (
-                  <EmotionBadge 
-                    key={emotion.id} 
-                    emotion={emotion}
-                    selected={true}
-                    size="xs"
-                  />
-                );
-              })}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium text-sm">{post.author.profile?.display_name}</h3>
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
+                  </span>
+                  <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded text-xs flex items-center">
+                    {getAudienceIcon()}
+                    {getAudienceName()}
+                  </span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                        <MoreHorizontal size={16} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      {isAuthor && (
+                        <>
+                          <DropdownMenuItem className="cursor-pointer" onClick={handleEditPost}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            <span>Edit post</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="cursor-pointer text-red-500 hover:text-red-600 focus:text-red-600" onClick={handleDeletePost}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            <span>Delete post</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
+                      <DropdownMenuItem className="cursor-pointer" onClick={handleCopyLink}>
+                        <Link className="mr-2 h-4 w-4" />
+                        <span>Copy link</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem className="cursor-pointer" onClick={handleCopyText}>
+                        <Copy className="mr-2 h-4 w-4" />
+                        <span>Copy text</span>
+                      </DropdownMenuItem>
+                      {!isAuthor && (
+                        <DropdownMenuItem className="cursor-pointer text-orange-500 hover:text-orange-600 focus:text-orange-600" onClick={handleReportPost}>
+                          <Flag className="mr-2 h-4 w-4" />
+                          <span>Report post</span>
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+              
+              <div className="flex space-x-2 mt-1">
+                {post.emotion_ids.map(id => {
+                  const emotion = emotions.find(e => e.id === id);
+                  if (!emotion) return null;
+                  return (
+                    <EmotionBadge 
+                      key={emotion.id} 
+                      emotion={emotion}
+                      selected={true}
+                      size="xs"
+                    />
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
-      </CardHeader>
-      
-      <CardContent className="px-4 pb-3">
-        <p className="text-sm mb-3 break-words break-all whitespace-pre-line">{post.content}</p>
+        </CardHeader>
         
-        {post.media && post.media.length > 0 && (
-          <MediaGallery media={post.media} className="mt-3" />
-        )}
-      </CardContent>
-      
-      <CardFooter className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
-        <div className="flex space-x-4">
-          <Button 
-            variant="ghost"
-            size="sm"
-            className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
-            onClick={() => toggleLikeMutation.mutate()}
-          >
-            {isLiked ? (
-              <Heart className="mr-1.5 h-4 w-4 fill-red-500 text-red-500" />
-            ) : (
-              <Heart className="mr-1.5 h-4 w-4" />
-            )}
-            <span className="text-xs">{localReactionCount}</span>
-          </Button>
+        <CardContent className="px-4 pb-3">
+          <p className="text-sm mb-3 break-words break-all whitespace-pre-line">{post.content}</p>
           
-          <Button 
-            variant="ghost"
-            size="sm"
-            className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
-          >
-            <MessageCircle className="mr-1.5 h-4 w-4" />
-            <span className="text-xs">{comments.length || 0}</span>
-          </Button>
-        </div>
-        
-        <Button 
-          variant="ghost"
-          size="sm"
-          className="text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
-        >
-          <Bookmark className="h-4 w-4" />
-        </Button>
-      </CardFooter>
-      
-      {comments.length > 0 && (
-        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
-          {commentsToDisplay.map(comment => (
-            <div key={comment.comment_id} className="flex items-start space-x-3 mb-3">
-              <AvatarWithRing 
-                user={comment.author}
-                size="sm"
-              />
-              
-              <div className="flex-1">
-                <div className="bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow-sm">
-                  <div className="flex justify-between items-center">
-                    <h4 className="font-medium text-xs">{comment.author.profile?.display_name}</h4>
-                    <span className="text-xs text-gray-500">
-                      {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
-                    </span>
-                  </div>
-                  <p className="text-xs mt-1 break-words break-all whitespace-pre-line">{comment.body}</p>
-                </div>
-                
-                <div className="flex mt-1 ml-1 space-x-2 text-xs text-gray-500">
-                  <Button variant="link" size="sm" className="h-auto p-0 text-xs">Like</Button>
-                  <Button variant="link" size="sm" className="h-auto p-0 text-xs">Reply</Button>
-                </div>
-              </div>
-            </div>
-          ))}
-          
-          {comments.length > 1 && (
-            <Button
-              variant="ghost" 
-              size="sm"
-              className="w-full mt-1 text-xs font-medium text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 flex items-center justify-center"
-              onClick={() => setShowAllComments(!showAllComments)}
-            >
-              {showAllComments ? (
-                <>
-                  <ChevronUp className="mr-1 h-4 w-4" />
-                  Show less
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="mr-1 h-4 w-4" />
-                  View all {comments.length} comments
-                </>
-              )}
-            </Button>
+          {post.media && post.media.length > 0 && (
+            <MediaGallery media={post.media} className="mt-3" />
           )}
-        </div>
-      )}
-      
-      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
-        <div className="flex items-center space-x-3">
-          <AvatarWithRing 
-            user={user!}
-            size="sm"
-          />
-          
-          <div className="flex-1 relative">
-            <Input
-              type="text"
-              className="w-full rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm"
-              placeholder="Write a comment..."
-              value={commentText}
-              onChange={(e) => setCommentText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
-            />
+        </CardContent>
+        
+        <CardFooter className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
+          <div className="flex space-x-4">
             <Button 
               variant="ghost"
               size="sm"
-              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-primary-600 dark:text-primary-400"
-              onClick={handleAddComment}
-              disabled={!commentText.trim() || addCommentMutation.isPending}
+              className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
+              onClick={() => toggleLikeMutation.mutate()}
             >
-              <Layers className="h-4 w-4" />
+              {isLiked ? (
+                <Heart className="mr-1.5 h-4 w-4 fill-red-500 text-red-500" />
+              ) : (
+                <Heart className="mr-1.5 h-4 w-4" />
+              )}
+              <span className="text-xs">{localReactionCount}</span>
+            </Button>
+            
+            <Button 
+              variant="ghost"
+              size="sm"
+              className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
+            >
+              <MessageCircle className="mr-1.5 h-4 w-4" />
+              <span className="text-xs">{comments.length || 0}</span>
             </Button>
           </div>
+          
+          <Button 
+            variant="ghost"
+            size="sm"
+            className="text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
+          >
+            <Bookmark className="h-4 w-4" />
+          </Button>
+        </CardFooter>
+        
+        {comments.length > 0 && (
+          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
+            {commentsToDisplay.map(comment => (
+              <div key={comment.comment_id} className="flex items-start space-x-3 mb-3">
+                <AvatarWithRing 
+                  user={comment.author}
+                  size="sm"
+                />
+                
+                <div className="flex-1">
+                  <div className="bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow-sm">
+                    <div className="flex justify-between items-center">
+                      <h4 className="font-medium text-xs">{comment.author.profile?.display_name}</h4>
+                      <span className="text-xs text-gray-500">
+                        {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-1 break-words break-all whitespace-pre-line">{comment.body}</p>
+                  </div>
+                  
+                  <div className="flex mt-1 ml-1 space-x-2 text-xs text-gray-500">
+                    <Button variant="link" size="sm" className="h-auto p-0 text-xs">Like</Button>
+                    <Button variant="link" size="sm" className="h-auto p-0 text-xs">Reply</Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            {comments.length > 1 && (
+              <Button
+                variant="ghost" 
+                size="sm"
+                className="w-full mt-1 text-xs font-medium text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 flex items-center justify-center"
+                onClick={() => setShowAllComments(!showAllComments)}
+              >
+                {showAllComments ? (
+                  <>
+                    <ChevronUp className="mr-1 h-4 w-4" />
+                    Show less
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="mr-1 h-4 w-4" />
+                    View all {comments.length} comments
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        )}
+        
+        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex items-center space-x-3">
+            <AvatarWithRing 
+              user={user!}
+              size="sm"
+            />
+            
+            <div className="flex-1 relative">
+              <Input
+                type="text"
+                className="w-full rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm"
+                placeholder="Write a comment..."
+                value={commentText}
+                onChange={(e) => setCommentText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
+              />
+              <Button 
+                variant="ghost"
+                size="sm"
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-primary-600 dark:text-primary-400"
+                onClick={handleAddComment}
+                disabled={!commentText.trim() || addCommentMutation.isPending}
+              >
+                <Layers className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+    </>
   );
 };

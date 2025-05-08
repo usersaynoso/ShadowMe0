@@ -34,10 +34,18 @@ const ProfilePage: FC = () => {
   });
 
   // Get user posts
-  const { data: userPosts = [], isLoading: postsLoading } = useQuery<Post[]>({
+  const { data: userPosts = [], isLoading: postsLoading, refetch: refetchUserPosts, isFetching: postsFetching } = useQuery<Post[]>({
     queryKey: [`/api/users/${userId}/posts`],
     enabled: !!userId,
+    refetchOnMount: true,
+    staleTime: 0,
   });
+
+  // Function to handle post updates
+  const handlePostUpdate = () => {
+    console.log('Profile post updated, refreshing...');
+    refetchUserPosts();
+  };
 
   // Filter posts by type
   const posts = userPosts.filter(post => !post.shadow_session);
@@ -161,11 +169,20 @@ const ProfilePage: FC = () => {
             </Card>
           ) : (
             <div className="space-y-6">
+              {/* Refreshing indicator */}
+              {postsFetching && !postsLoading && (
+                <div className="flex justify-center items-center gap-2 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg mb-4 text-sm animate-pulse">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Refreshing posts...</span>
+                </div>
+              )}
+              
               {posts.map(post => (
                 <PostCard 
                   key={post.post_id}
                   post={post}
                   emotions={emotions}
+                  onPostUpdated={handlePostUpdate}
                 />
               ))}
             </div>
@@ -198,6 +215,14 @@ const ProfilePage: FC = () => {
             </Card>
           ) : (
             <div className="space-y-6">
+              {/* Refreshing indicator */}
+              {postsFetching && !postsLoading && (
+                <div className="flex justify-center items-center gap-2 py-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 rounded-lg mb-4 text-sm animate-pulse">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Refreshing shadow sessions...</span>
+                </div>
+              )}
+              
               {shadowSessions.map(post => (
                 <ShadowSessionCard 
                   key={post.post_id}

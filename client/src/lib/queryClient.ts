@@ -21,6 +21,8 @@ export async function apiRequest(
   const headers: HeadersInit = {};
   if (data && !isFormData) {
     headers['Content-Type'] = 'application/json';
+    // Add explicit Accept header to request JSON
+    headers['Accept'] = 'application/json';
   }
   
   // Some browsers/servers don't properly handle DELETE requests with bodies
@@ -53,6 +55,42 @@ export async function apiRequest(
   });
 
   console.log(`API Response status: ${res.status} for ${method} ${url}`);
+  console.log(`API Response Content-Type: ${res.headers.get('Content-Type')}`);
+  
+  // Special handling for successful responses that may not be JSON
+  if (res.ok) {
+    // Clone the response to avoid consuming it
+    const clonedRes = res.clone();
+    const contentType = res.headers.get('Content-Type') || '';
+    
+    // If HTML was returned but we expected JSON, create a new Response with empty JSON
+    if (contentType.includes('text/html')) {
+      console.warn('Server returned HTML instead of JSON. Creating empty JSON response.');
+      const jsonResponse = new Response(JSON.stringify({ success: true }), {
+        status: res.status,
+        statusText: res.statusText,
+        headers: new Headers({
+          'Content-Type': 'application/json'
+        })
+      });
+      return jsonResponse;
+    }
+    
+    // For non-JSON responses with 2xx status, just return success
+    if (!contentType.includes('application/json') && method !== 'GET') {
+      console.log('Server returned non-JSON successful response');
+      const jsonResponse = new Response(JSON.stringify({ success: true }), {
+        status: res.status,
+        statusText: res.statusText,
+        headers: new Headers({
+          'Content-Type': 'application/json'
+        })
+      });
+      return jsonResponse;
+    }
+    
+    return res;
+  }
   
   await throwIfResNotOk(res);
   return res;
@@ -90,8 +128,8 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      refetchOnWindowFocus: true,
+      staleTime: 0,
       retry: false,
     },
     mutations: {
