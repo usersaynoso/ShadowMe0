@@ -781,42 +781,76 @@ export class DatabaseStorage implements IStorage {
     console.log(`[DEBUG] Getting members for friend group ${groupId}`);
     
     try {
-      const members = await db.select({
-          user: users,
-          profile: profiles,
-          role: friend_group_members.role
-        })
-        .from(friend_group_members)
-        .innerJoin(users, eq(friend_group_members.user_id, users.user_id))
-        .leftJoin(profiles, eq(users.user_id, profiles.user_id))
-        .where(eq(friend_group_members.friend_group_id, groupId));
+      // First, get the owner of the group
+      const [group] = await db.select()
+        .from(friend_groups)
+        .where(eq(friend_groups.friend_group_id, groupId))
+        .limit(1);
       
-      console.log(`[DEBUG] Found ${members.length} raw members for friend group ${groupId}`);
-      
-      // Log raw members data
-      if (members.length > 0) {
-        console.log(`[DEBUG] First raw member:`, JSON.stringify(members[0], null, 2));
+      if (!group) {
+        console.log(`[DEBUG] Group ${groupId} not found`);
+        return [];
       }
       
-      // Transform the data structure to what the frontend expects:
-      // Each user should have user_id at the top level, not nested in user property
-      const validMembers = members
-        .filter(member => !!member && !!member.user && typeof member.user.user_id === 'string')
-        .map(member => ({
-          user_id: member.user.user_id, // Add user_id at top level for frontend
-          email: member.user.email,
-          created_at: member.user.created_at,
-          updated_at: member.user.updated_at,
-          profile: member.profile,
-          role: member.role
-        }));
+      // Get the owner user with profile
+      const ownerData = await db.select({
+        user: users,
+        profile: profiles
+      })
+      .from(users)
+      .where(eq(users.user_id, group.owner_user_id))
+      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+      .limit(1);
       
-      console.log(`[DEBUG] Returning ${validMembers.length} valid members after filtering`);
-      if (validMembers.length > 0) {
-        console.log(`[DEBUG] First processed member:`, JSON.stringify(validMembers[0], null, 2));
+      // Get all other members
+      const membersData = await db.select({
+        user: users,
+        profile: profiles,
+        role: friend_group_members.role
+      })
+      .from(friend_group_members)
+      .innerJoin(users, eq(friend_group_members.user_id, users.user_id))
+      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+      .where(and(
+        eq(friend_group_members.friend_group_id, groupId),
+        ne(friend_group_members.user_id, group.owner_user_id) // Skip owner as we already got them
+      ));
+      
+      // Prepare owner data in the expected format
+      const ownerUser = ownerData.length > 0 ? {
+        user_id: ownerData[0].user.user_id,
+        email: ownerData[0].user.email,
+        user_type: ownerData[0].user.user_type,
+        user_points: ownerData[0].user.user_points,
+        user_level: ownerData[0].user.user_level,
+        is_active: ownerData[0].user.is_active,
+        created_at: ownerData[0].user.created_at,
+        profile: ownerData[0].profile,
+        role: 'owner'
+      } : null;
+      
+      // Process all members
+      const membersArray = membersData.map(member => ({
+        user_id: member.user.user_id,
+        email: member.user.email,
+        user_type: member.user.user_type,
+        user_points: member.user.user_points,
+        user_level: member.user.user_level,
+        is_active: member.user.is_active,
+        created_at: member.user.created_at,
+        profile: member.profile,
+        role: member.role
+      }));
+      
+      // Create final array with owner at the beginning, followed by members
+      const allMembers = ownerUser ? [ownerUser, ...membersArray] : membersArray;
+      
+      console.log(`[DEBUG] Returning ${allMembers.length} members for friend group ${groupId}`);
+      if (allMembers.length > 0) {
+        console.log(`[DEBUG] First member:`, JSON.stringify(allMembers[0], null, 2));
       }
       
-      return validMembers;
+      return allMembers;
     } catch (error) {
       console.error(`[ERROR] Failed to get members for friend group ${groupId}:`, error);
       return [];

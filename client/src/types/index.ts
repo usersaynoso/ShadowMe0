@@ -4,15 +4,16 @@ import { z } from "zod";
 export interface User {
   user_id: string;
   email: string;
-  user_type: string;
+  user_type?: string;
   user_points: number;
   user_level: number;
-  is_active: boolean;
+  is_active?: boolean;
   created_at: string;
   profile?: Profile;
   isOnline?: boolean;
   lastEmotions?: number[];
   mutualFriendCount?: number;
+  role?: string;
 }
 
 export interface Profile {

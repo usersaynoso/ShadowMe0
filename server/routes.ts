@@ -665,10 +665,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "You do not have permission to access this circle" });
       }
       
+      // Get all members of the friend group
       const members = await storage.getFriendGroupMembers(req.params.groupId);
+      
+      // Log debug info
       console.log(`[API] Found ${members.length} members for circle ${req.params.groupId}:`);
       console.log(JSON.stringify(members, null, 2).substring(0, 1000)); // Log up to 1000 chars to avoid huge logs
       
+      // Return the array of user objects
       return res.json(members);
     } catch (error) {
       console.error("[API Error] Error getting circle members:", error);
