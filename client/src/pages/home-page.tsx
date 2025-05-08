@@ -15,16 +15,15 @@ import { useQuery } from "@tanstack/react-query";
 
 const HomePage: FC = () => {
   const { user } = useAuth();
-  const [selectedEmotions, setSelectedEmotions] = useState<number[]>([]);
   
   // Get all emotions
   const { data: emotions = [] } = useQuery<Emotion[]>({
     queryKey: ['/api/emotions'],
   });
   
-  // Get posts with emotion filter if selected
+  // Get posts (no emotion filter)
   const { data: posts = [], isLoading: postsLoading } = useQuery<Post[]>({
-    queryKey: ['/api/posts', { emotions: selectedEmotions }],
+    queryKey: ['/api/posts'],
   });
 
   return (
@@ -65,18 +64,6 @@ const HomePage: FC = () => {
         </div>
       </Card>
       
-      {/* Emotion Filter */}
-      <Card className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 mb-6">
-        <h3 className="text-sm font-medium mb-3">Feeling Filter</h3>
-        <EmotionSelector 
-          emotions={emotions}
-          selectedEmotions={selectedEmotions}
-          onChange={setSelectedEmotions}
-          max={5}
-          isFilter={true}
-        />
-      </Card>
-      
       {/* Posts Feed */}
       <div className="space-y-6">
         {postsLoading ? (
@@ -87,18 +74,8 @@ const HomePage: FC = () => {
           <Card className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-8 text-center">
             <h3 className="text-lg font-medium mb-2">No posts yet</h3>
             <p className="text-gray-500 dark:text-gray-400 mb-4">
-              {selectedEmotions.length > 0 
-                ? "No posts match your selected emotions filter. Try a different selection."
-                : "Be the first to share your thoughts and feelings!"}
+              Be the first to share your thoughts and feelings!
             </p>
-            {selectedEmotions.length > 0 && (
-              <Button 
-                variant="outline" 
-                onClick={() => setSelectedEmotions([])}
-              >
-                Clear Filter
-              </Button>
-            )}
           </Card>
         ) : (
           <>

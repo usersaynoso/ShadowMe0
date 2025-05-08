@@ -26,7 +26,7 @@ const upload = multer({
     }
   }),
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB max file size
+    fileSize: 10 * 1024 * 1024, // 10MB max file size
   },
   fileFilter: (req, file, cb) => {
     // Only accept images
@@ -38,6 +38,27 @@ const upload = multer({
     }
   }
 });
+
+// Helper function to create notifications
+async function createUserNotification(
+  recipientId: string,
+  senderId: string | null,
+  type: string,
+  content: string,
+  relatedItemId?: string
+) {
+  try {
+    await storage.createNotification({
+      recipient_user_id: recipientId,
+      sender_user_id: senderId,
+      type: type as any,
+      content,
+      related_item_id: relatedItemId
+    });
+  } catch (error) {
+    console.error('Error creating notification:', error);
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Set up authentication routes
@@ -56,7 +77,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/emotions", isAuthenticated, async (req, res) => {
     try {
       const emotions = await storage.getEmotions();
-      res.json(emotions);
+      // Map the database fields to the format expected by the client
+      const mappedEmotions = emotions.map(emotion => ({
+        id: emotion.emotion_id,
+        name: emotion.emotion_name,
+        color: emotion.emotion_color
+      }));
+      res.json(mappedEmotions);
     } catch (err) {
       console.error("Failed to get emotions:", err);
       res.status(500).json({ message: "Failed to get emotions" });
@@ -100,35 +127,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "At least one emotion is required" });
       }
       
-      // Handle file upload if present
-      let mediaUrl = null;
-      if (req.file) {
-        mediaUrl = `/uploads/${req.file.filename}`;
-      }
-      
-      // Create the post
+      // Create the post first so we have a post_id for media
       const post = await storage.createPost({
-        author_user_id: req.user.user_id,
+        author_user_id: req.user!.user_id,
         parent_type: 'profile',
-        parent_id: req.user.user_id,
+        parent_id: req.user!.user_id,
         audience,
         content: content || null,
         emotion_ids: parsedEmotionIds,
-        media: mediaUrl ? [{
-          media_url: mediaUrl,
-          media_type: req.file?.mimetype || 'image/jpeg'
-        }] : undefined,
         friend_group_ids: parsedFriendGroupIds
       });
       
-      // If it's a shadow session, create the session as well
-      if (is_shadow_session === 'true' && session_title && starts_at && ends_at && timezone) {
+      // Handle file upload if present using Supabase storage
+      if (req.file) {
+        try {
+          // Upload to Supabase and get URL
+          const mediaUrl = await storage.uploadPostMedia(
+            req.file.path, 
+            req.file.originalname, 
+            post.post_id
+          );
+          
+          console.log(`Media uploaded successfully to ${mediaUrl}`);
+        } catch (uploadError) {
+          console.error("Error uploading media to Supabase:", uploadError);
+          // Continue with post creation even if media upload fails
+        }
+      }
+      
+      // If this is a shadow session, create the session
+      if (is_shadow_session === 'true' && starts_at && ends_at) {
         await storage.createShadowSession({
           post_id: post.post_id,
-          title: session_title,
           starts_at,
           ends_at,
-          timezone
+          timezone: timezone || 'UTC',
+          title: session_title,
+          creator_id: req.user!.user_id
         });
       }
       
@@ -151,16 +186,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/posts/:postId/comments", isAuthenticated, async (req, res) => {
     try {
-      const comment = await storage.createComment({
-        post_id: req.params.postId,
-        author_user_id: req.user.user_id,
-        body: req.body.body,
-        parent_comment_id: req.body.parent_comment_id
+      const user = req.user as User;
+      const { postId } = req.params;
+      const { body, parent_comment_id } = req.body;
+      
+      if (!body) {
+        return res.status(400).json({ error: 'Comment body is required' });
+      }
+      
+      // Get the post to check author and notify them
+      const post = await storage.getPostById(postId);
+      if (!post) {
+        return res.status(404).json({ error: 'Post not found' });
+      }
+      
+      const newComment = await storage.createComment({
+        post_id: postId,
+        author_user_id: user.user_id,
+        parent_comment_id: parent_comment_id || null,
+        body
       });
-      res.status(201).json(comment);
-    } catch (err) {
-      console.error("Failed to create comment:", err);
-      res.status(500).json({ message: "Failed to create comment" });
+      
+      // Notify the post author (if not the same as commenter)
+      if (post.author_user_id !== user.user_id) {
+        await createUserNotification(
+          post.author_user_id,
+          user.user_id,
+          'post_commented',
+          `commented on your post`,
+          postId
+        );
+      }
+      
+      // If replying to a comment, also notify the comment author
+      if (parent_comment_id) {
+        const parentComment = await storage.getCommentById(parent_comment_id);
+        if (parentComment && parentComment.author_user_id !== user.user_id) {
+          await createUserNotification(
+            parentComment.author_user_id,
+            user.user_id,
+            'post_commented',
+            `replied to your comment`,
+            postId
+          );
+        }
+      }
+      
+      res.json(newComment);
+    } catch (error) {
+      console.error('Error creating comment:', error);
+      res.status(500).json({ error: 'Failed to create comment' });
     }
   });
 
@@ -176,15 +251,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/posts/:postId/reactions", isAuthenticated, async (req, res) => {
     try {
-      const reaction = await storage.createReaction({
-        post_id: req.params.postId,
-        user_id: req.user.user_id,
-        reaction_type: req.body.reaction_type || 'like'
+      const user = req.user as User;
+      const { postId } = req.params;
+      const { reaction_type } = req.body;
+      
+      if (!reaction_type) {
+        return res.status(400).json({ error: 'Reaction type is required' });
+      }
+      
+      // Get the post to check author and notify them
+      const post = await storage.getPostById(postId);
+      if (!post) {
+        return res.status(404).json({ error: 'Post not found' });
+      }
+      
+      const newReaction = await storage.createReaction({
+        post_id: postId,
+        user_id: user.user_id,
+        reaction_type
       });
-      res.status(201).json(reaction);
-    } catch (err) {
-      console.error("Failed to create reaction:", err);
-      res.status(500).json({ message: "Failed to create reaction" });
+      
+      // Notify the post author (if not the same as reactor)
+      if (post.author_user_id !== user.user_id) {
+        await createUserNotification(
+          post.author_user_id,
+          user.user_id,
+          'post_liked',
+          `reacted to your post with ${reaction_type}`,
+          postId
+        );
+      }
+      
+      res.json(newReaction);
+    } catch (error) {
+      console.error('Error creating reaction:', error);
+      res.status(500).json({ error: 'Failed to create reaction' });
     }
   });
 
@@ -241,11 +342,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/shadow-sessions/:sessionId/join", isAuthenticated, async (req, res) => {
     try {
-      await storage.joinShadowSession(req.params.sessionId, req.user.user_id);
-      res.status(200).json({ message: "Joined session successfully" });
-    } catch (err) {
-      console.error("Failed to join session:", err);
-      res.status(500).json({ message: "Failed to join session" });
+      const user = req.user as User;
+      const { sessionId } = req.params;
+      
+      // Check if session exists
+      const session = await storage.getShadowSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: 'Shadow session not found' });
+      }
+      
+      await storage.joinShadowSession(sessionId, user.user_id);
+      
+      // Notify the creator that someone joined their session
+      if (session.author_user_id !== user.user_id) {
+        await createUserNotification(
+          session.author_user_id,
+          user.user_id,
+          'shadow_session_created',
+          `joined your shadow session "${session.title}"`,
+          sessionId
+        );
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error joining shadow session:', error);
+      res.status(500).json({ error: 'Failed to join shadow session' });
     }
   });
 
@@ -259,10 +381,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Shadow Session Media Upload
+  app.post('/shadow-sessions/:sessionId/media', isAuthenticated, upload.single('media'), async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const userId = req.user!.user_id;
+
+      // Check if session exists
+      const session = await storage.getShadowSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: 'Shadow session not found' });
+      }
+
+      // Check if user is a participant in the session
+      const isParticipant = await storage.isUserSessionParticipant(sessionId, userId);
+      if (!isParticipant) {
+        return res.status(403).json({ error: 'You must be a participant to share media in this session' });
+      }
+
+      // Check if session is active
+      const now = new Date();
+      const startsAt = new Date(session.starts_at);
+      const endsAt = new Date(session.ends_at);
+      const isActive = now >= startsAt && now <= endsAt;
+      
+      if (!isActive) {
+        return res.status(403).json({ error: 'Media can only be shared during active sessions' });
+      }
+
+      // Check if a file was uploaded
+      if (!req.file) {
+        return res.status(400).json({ error: 'No media file provided' });
+      }
+
+      // Save the media to storage (Supabase)
+      const mediaPath = req.file.path;
+      const mediaType = req.file.mimetype;
+      const mediaSize = req.file.size;
+      
+      // Upload the file to storage and get the URL
+      const mediaUrl = await storage.uploadSessionMedia(mediaPath, req.file.originalname, sessionId);
+      
+      // Create a message about the media being shared
+      const mediaMessage = {
+        type: 'media_share',
+        sessionId,
+        userId,
+        mediaUrl,
+        mediaType,
+        createdAt: new Date().toISOString()
+      };
+      
+      // Save the media message
+      await storage.createSessionMediaMessage(mediaMessage);
+      
+      // Broadcast to all session participants via WebSocket
+      // This will be handled by the WebSocket server
+      
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Media shared successfully',
+        mediaUrl
+      });
+    } catch (error) {
+      console.error("Error sharing media:", error);
+      return res.status(500).json({ error: 'Failed to share media' });
+    }
+  });
+
+  // Get Shadow Session Media
+  app.get('/shadow-sessions/:sessionId/media', isAuthenticated, async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const userId = req.user!.user_id;
+      
+      // Check if session exists
+      const session = await storage.getShadowSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: 'Shadow session not found' });
+      }
+      
+      // Check if user is a participant in the session
+      const isParticipant = await storage.isUserSessionParticipant(sessionId, userId);
+      if (!isParticipant) {
+        return res.status(403).json({ error: 'You must be a participant to view session media' });
+      }
+      
+      // Get session media messages
+      const mediaMessages = await storage.getSessionMediaMessages(sessionId);
+      
+      return res.status(200).json(mediaMessages);
+    } catch (error) {
+      console.error("Error fetching session media:", error);
+      return res.status(500).json({ error: 'Failed to fetch session media' });
+    }
+  });
+
   // Friend Groups (Circles)
   app.get("/api/friend-groups", isAuthenticated, async (req, res) => {
     try {
-      const groups = await storage.getUserFriendGroups(req.user.user_id);
+      const groups = await storage.getUserFriendGroups(req.user!.user_id);
       res.json(groups);
     } catch (err) {
       console.error("Failed to get friend groups:", err);
@@ -273,7 +491,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/friend-groups", isAuthenticated, async (req, res) => {
     try {
       const group = await storage.createFriendGroup({
-        owner_user_id: req.user.user_id,
+        owner_user_id: req.user!.user_id,
         name: req.body.name,
         description: req.body.description
       });
@@ -281,6 +499,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to create friend group:", err);
       res.status(500).json({ message: "Failed to create friend group" });
+    }
+  });
+
+  // NEW: Get members of a friend group
+  app.get("/api/friend-groups/:groupId/members", isAuthenticated, async (req, res) => {
+    try {
+      // Verify user has access to this friend group
+      const canAccess = await storage.canAccessFriendGroup(req.params.groupId, req.user!.user_id);
+      if (!canAccess) {
+        return res.status(403).json({ message: "You do not have permission to access this circle" });
+      }
+      
+      const members = await storage.getFriendGroupMembers(req.params.groupId);
+      res.json(members);
+    } catch (err) {
+      console.error("Failed to get circle members:", err);
+      res.status(500).json({ message: "Failed to get circle members" });
+    }
+  });
+
+  // NEW: Add member to a friend group
+  app.post("/api/friend-groups/:groupId/members", isAuthenticated, async (req, res) => {
+    try {
+      // Verify user is the owner of this friend group
+      const isOwner = await storage.isFriendGroupOwner(req.params.groupId, req.user!.user_id);
+      if (!isOwner) {
+        return res.status(403).json({ message: "Only the circle owner can add members" });
+      }
+      
+      // Verify the user to be added is a connection
+      const isConnection = await storage.areUsersConnected(req.user!.user_id, req.body.user_id);
+      if (!isConnection) {
+        return res.status(400).json({ message: "You can only add connections to your circles" });
+      }
+      
+      await storage.addFriendGroupMember(req.params.groupId, req.body.user_id);
+      res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("Failed to add circle member:", err);
+      res.status(500).json({ message: "Failed to add circle member" });
+    }
+  });
+
+  // NEW: Remove member from a friend group
+  app.delete("/api/friend-groups/:groupId/members/:userId", isAuthenticated, async (req, res) => {
+    try {
+      // Verify user is the owner of this friend group
+      const isOwner = await storage.isFriendGroupOwner(req.params.groupId, req.user!.user_id);
+      if (!isOwner) {
+        return res.status(403).json({ message: "Only the circle owner can remove members" });
+      }
+      
+      await storage.removeFriendGroupMember(req.params.groupId, req.params.userId);
+      res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("Failed to remove circle member:", err);
+      res.status(500).json({ message: "Failed to remove circle member" });
+    }
+  });
+
+  // NEW: Delete a friend group
+  app.delete("/api/friend-groups/:groupId", isAuthenticated, async (req, res) => {
+    try {
+      // Verify user is the owner of this friend group
+      const isOwner = await storage.isFriendGroupOwner(req.params.groupId, req.user!.user_id);
+      if (!isOwner) {
+        return res.status(403).json({ message: "Only the circle owner can delete it" });
+      }
+      
+      await storage.deleteFriendGroup(req.params.groupId);
+      res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("Failed to delete circle:", err);
+      res.status(500).json({ message: "Failed to delete circle" });
     }
   });
 
@@ -390,6 +682,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/user/connection-status/:userId", isAuthenticated, async (req, res) => {
+    try {
+      const targetUserId = req.params.userId;
+      const status = await storage.getConnectionStatus(req.user.user_id, targetUserId);
+      res.json({ status });
+    } catch (err) {
+      console.error("Failed to get connection status:", err);
+      res.status(500).json({ message: "Failed to get connection status" });
+    }
+  });
+
   app.get("/api/user/connections/pending", isAuthenticated, async (req, res) => {
     try {
       const pendingRequests = await storage.getPendingConnectionRequests(req.user.user_id);
@@ -422,21 +725,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/friends/request", isAuthenticated, async (req, res) => {
     try {
-      await storage.sendFriendRequest(req.user.user_id, req.body.friend_id);
-      res.status(200).json({ message: "Friend request sent" });
-    } catch (err) {
-      console.error("Failed to send friend request:", err);
-      res.status(500).json({ message: "Failed to send friend request" });
+      const userId = (req.user as User).user_id;
+      const { friend_id } = req.body;
+      
+      if (!friend_id) {
+        return res.status(400).json({ error: 'Friend ID is required' });
+      }
+      
+      await storage.sendFriendRequest(userId, friend_id);
+      
+      // Create notification for the recipient
+      await createUserNotification(
+        friend_id, 
+        userId, 
+        'friendship_request', 
+        `sent you a connection request`,
+        userId
+      );
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error sending friend request:', error);
+      res.status(500).json({ error: 'Failed to send request' });
     }
   });
 
   app.post("/api/friends/accept", isAuthenticated, async (req, res) => {
     try {
-      await storage.acceptFriendRequest(req.user.user_id, req.body.friend_id);
-      res.status(200).json({ message: "Friend request accepted" });
-    } catch (err) {
-      console.error("Failed to accept friend request:", err);
-      res.status(500).json({ message: "Failed to accept friend request" });
+      const userId = (req.user as User).user_id;
+      const { friend_id } = req.body;
+      
+      if (!friend_id) {
+        return res.status(400).json({ error: 'Friend ID is required' });
+      }
+      
+      await storage.acceptFriendRequest(userId, friend_id);
+      
+      // Create notification for the other user
+      await createUserNotification(
+        friend_id, 
+        userId, 
+        'friendship_accepted', 
+        `accepted your connection request`,
+        userId
+      );
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error accepting friend request:', error);
+      res.status(500).json({ error: 'Failed to accept request' });
     }
   });
 
@@ -457,6 +794,210 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to remove friend:", err);
       res.status(500).json({ message: "Failed to remove friend" });
+    }
+  });
+
+  // Get a specific user by ID
+  app.get("/api/users/:userId", isAuthenticated, async (req, res, next) => {
+    try {
+      const userId = req.params.userId;
+      
+      // If querying self, use the authenticated user
+      if (userId === "me" || userId === req.user?.user_id) {
+        const { password, ...userWithoutPassword } = req.user!;
+        return res.status(200).json(userWithoutPassword);
+      }
+      
+      // Otherwise, fetch the requested user
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      // Don't expose password
+      const { password, ...userWithoutPassword } = user;
+      
+      res.status(200).json(userWithoutPassword);
+    } catch (error) {
+      next(error);
+    }
+  });
+  
+  // Get posts by a specific user
+  app.get("/api/users/:userId/posts", isAuthenticated, async (req, res, next) => {
+    try {
+      const userId = req.params.userId;
+      const targetUserId = userId === "me" ? req.user!.user_id : userId;
+      
+      const posts = await storage.getPostsByUser(targetUserId);
+      
+      // Enhance posts with author data
+      const enhancedPosts = await Promise.all(posts.map(async (post) => {
+        const author = await storage.getUser(post.author_user_id);
+        
+        // Get shadow session data if this is a shadow session post
+        let shadowSession = null;
+        if (post.is_shadow_session) {
+          shadowSession = await storage.getShadowSession(post.post_id);
+        }
+        
+        // Don't expose password in author data
+        const { password, ...authorWithoutPassword } = author;
+        
+        return {
+          ...post,
+          author: authorWithoutPassword,
+          shadow_session: shadowSession,
+          reactions_count: await storage.getPostReactionsCount(post.post_id)
+        };
+      }));
+      
+      res.status(200).json(enhancedPosts);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Update user profile
+  app.put("/api/users/:userId/profile", isAuthenticated, async (req, res, next) => {
+    try {
+      const userId = req.params.userId;
+      
+      // Only allow users to update their own profile
+      if (userId !== req.user?.user_id) {
+        return res.status(403).json({ message: "You can only update your own profile" });
+      }
+      
+      const { display_name, bio } = req.body;
+      
+      // Update the profile
+      const updatedProfile = await storage.updateProfile(userId, {
+        display_name, 
+        bio
+      });
+      
+      res.status(200).json(updatedProfile);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Upload avatar photo
+  app.post("/api/users/:userId/avatar", isAuthenticated, upload.single('avatar'), async (req, res, next) => {
+    try {
+      const userId = req.params.userId;
+      
+      // Only allow users to update their own avatar
+      if (userId !== req.user?.user_id) {
+        return res.status(403).json({ message: "You can only update your own avatar" });
+      }
+      
+      // Check if a file was uploaded
+      if (!req.file) {
+        return res.status(400).json({ message: "No avatar file provided" });
+      }
+      
+      // Upload the avatar to Supabase
+      const avatarUrl = await storage.uploadUserAvatar(
+        req.file.path,
+        req.file.originalname,
+        userId
+      );
+      
+      // Update the profile with the new avatar URL
+      const updatedProfile = await storage.updateProfile(userId, {
+        avatar_url: avatarUrl
+      });
+      
+      res.status(200).json(updatedProfile);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Notification routes
+  app.get('/api/notifications', isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as User;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+      const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
+      
+      const notifications = await storage.getUserNotifications(user.user_id, limit, offset);
+      
+      // Get unread count for the badge
+      const unreadCount = notifications.filter(n => !n.is_read).length;
+      
+      res.json({
+        notifications,
+        unreadCount
+      });
+    } catch (error) {
+      console.error('Error getting notifications:', error);
+      res.status(500).json({ error: 'Failed to get notifications' });
+    }
+  });
+
+  app.post('/api/notifications/:notificationId/read', isAuthenticated, async (req, res) => {
+    try {
+      const { notificationId } = req.params;
+      
+      await storage.markNotificationAsRead(notificationId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      res.status(500).json({ error: 'Failed to mark notification as read' });
+    }
+  });
+
+  app.post('/api/notifications/read-all', isAuthenticated, async (req, res) => {
+    try {
+      const user = req.user as User;
+      
+      await storage.markAllNotificationsAsRead(user.user_id);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+      res.status(500).json({ error: 'Failed to mark all notifications as read' });
+    }
+  });
+
+  app.delete('/api/notifications/:notificationId', isAuthenticated, async (req, res) => {
+    try {
+      const { notificationId } = req.params;
+      
+      await storage.deleteNotification(notificationId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      res.status(500).json({ error: 'Failed to delete notification' });
+    }
+  });
+
+  // Get post media
+  app.get("/api/posts/:postId/media", async (req, res) => {
+    try {
+      const { postId } = req.params;
+      const media = await storage.getPostMedia(postId);
+      res.json(media);
+    } catch (err) {
+      console.error("Failed to get post media:", err);
+      res.status(500).json({ message: "Failed to get post media" });
+    }
+  });
+
+  // Delete media
+  app.delete("/api/media/:mediaId", isAuthenticated, async (req, res) => {
+    try {
+      const { mediaId } = req.params;
+      await storage.deleteMedia(mediaId);
+      res.status(204).send();
+    } catch (err) {
+      console.error("Failed to delete media:", err);
+      res.status(500).json({ message: "Failed to delete media" });
     }
   });
 

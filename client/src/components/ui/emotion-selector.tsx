@@ -14,7 +14,7 @@ interface EmotionSelectorProps {
   emotions: Emotion[];
   selectedEmotions: number[];
   onChange: (ids: number[]) => void;
-  max?: number; // Maximum number of selections allowed
+  max?: number; // Maximum number of selections allowed, if undefined = unlimited
   isFilter?: boolean; // Is this used as a filter (true) or selection (false)
   disabled?: boolean;
 }
@@ -23,7 +23,7 @@ export const EmotionSelector: FC<EmotionSelectorProps> = ({
   emotions,
   selectedEmotions,
   onChange,
-  max = 3,
+  max,
   isFilter = false,
   disabled = false
 }) => {
@@ -34,8 +34,8 @@ export const EmotionSelector: FC<EmotionSelectorProps> = ({
       // Remove emotion if already selected
       onChange(selectedEmotions.filter(id => id !== emotionId));
     } else {
-      // Add emotion if not at max limit
-      if (selectedEmotions.length < max || isFilter) {
+      // Add emotion if not at max limit or if unlimited (max is undefined)
+      if (max === undefined || selectedEmotions.length < max || isFilter) {
         onChange([...selectedEmotions, emotionId]);
       } else if (max === 1) {
         // If max is 1, replace the selection
@@ -65,7 +65,7 @@ export const EmotionSelector: FC<EmotionSelectorProps> = ({
                 "rounded-full shadow-sm transition-all",
                 {
                   "ring-2": isSelected,
-                  "opacity-60": !isSelected && selectedEmotions.length >= max && !isFilter && !disabled,
+                  "opacity-60": !isSelected && max !== undefined && selectedEmotions.length >= max && !isFilter && !disabled,
                   "cursor-not-allowed opacity-50": disabled
                 }
               )}
@@ -102,7 +102,9 @@ export const EmotionSelector: FC<EmotionSelectorProps> = ({
           <Badge variant="secondary" className="text-xs">
             {selectedEmotions.length === 1 
               ? "1 emotion selected" 
-              : `${selectedEmotions.length}/${max} emotions selected`}
+              : max !== undefined
+                ? `${selectedEmotions.length}/${max} emotions selected`
+                : `${selectedEmotions.length} emotions selected`}
           </Badge>
         </div>
       )}

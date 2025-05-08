@@ -25,6 +25,8 @@ import {
   UserCircle 
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { NotificationBell } from '@/components/ui/notification-bell';
+import { ThemeToggle } from '@/components/ui/theme-toggle';
 
 export const Header: FC = () => {
   const [location] = useLocation();
@@ -92,6 +94,11 @@ export const Header: FC = () => {
             <Bell className="h-5 w-5" />
           </Button>
           
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <NotificationBell />
+          </div>
+          
           {/* User Avatar Dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -103,9 +110,13 @@ export const Header: FC = () => {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem className="cursor-pointer">
-                <UserCircle className="mr-2 h-4 w-4" />
-                <span>Profile</span>
+              <DropdownMenuItem className="cursor-pointer" asChild>
+                <Link href="/profile">
+                  <a className="flex items-center w-full">
+                    <UserCircle className="mr-2 h-4 w-4" />
+                    <span>Profile</span>
+                  </a>
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem className="cursor-pointer">
                 <Settings className="mr-2 h-4 w-4" />

@@ -1,6 +1,7 @@
 import React, { FC } from 'react';
 import { User } from "@/types";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { OnlineStatus } from "@/components/ui/online-status";
 import { cn } from "@/lib/utils";
 
 interface AvatarWithEmotionProps {
@@ -8,13 +9,15 @@ interface AvatarWithEmotionProps {
   className?: string;
   size?: 'sm' | 'md' | 'lg';
   emotionOverrides?: number[]; // specific emotions to show instead of user's lastEmotions
+  showOnlineStatus?: boolean;
 }
 
 export const AvatarWithEmotion: FC<AvatarWithEmotionProps> = ({ 
   user, 
   className = "",
   size = "md",
-  emotionOverrides
+  emotionOverrides,
+  showOnlineStatus = true
 }) => {
   // Determine which emotions to use (override or user's last emotions)
   const emotionIds = emotionOverrides || user.lastEmotions || [];
@@ -97,6 +100,13 @@ export const AvatarWithEmotion: FC<AvatarWithEmotionProps> = ({
     )`;
   };
 
+  // Map component size to OnlineStatus size
+  const onlineStatusSize = {
+    sm: 'sm',
+    md: 'md',
+    lg: 'lg'
+  } as const;
+
   return (
     <div 
       className={cn(
@@ -124,8 +134,13 @@ export const AvatarWithEmotion: FC<AvatarWithEmotionProps> = ({
       </Avatar>
       
       {/* Online indicator */}
-      {user.isOnline && (
-        <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-white dark:ring-gray-800" />
+      {showOnlineStatus && user.isOnline && (
+        <OnlineStatus 
+          status="online" 
+          size={onlineStatusSize[size]}
+          pulsating={true}
+          absolutePosition="bottom-right"
+        />
       )}
     </div>
   );

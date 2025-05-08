@@ -21,6 +21,9 @@ import { Post, Comment, User, Emotion, ShadowSession } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ShadowSessionChat } from "@/components/shadow-session-chat";
+import { Link } from "wouter";
 
 interface ShadowSessionCardProps {
   post: Post & { shadow_session: ShadowSession };
@@ -53,8 +56,39 @@ export const ShadowSessionCard: FC<ShadowSessionCardProps> = ({ post, emotions }
     mutationFn: async () => {
       return apiRequest('POST', `/api/shadow-sessions/${shadowSession.post_id}/join`);
     },
+    onMutate: async () => {
+      // Cancel any outgoing refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['/api/shadow-sessions', shadowSession.post_id, 'participants'] });
+      
+      // Snapshot the previous value
+      const previousParticipants = queryClient.getQueryData(['/api/shadow-sessions', shadowSession.post_id, 'participants']);
+      
+      // Optimistically update to the new value
+      if (user && !participants.some(p => p.user_id === user.user_id)) {
+        queryClient.setQueryData(
+          ['/api/shadow-sessions', shadowSession.post_id, 'participants'],
+          [...participants, user]
+        );
+      }
+      
+      // Return the snapshot
+      return { previousParticipants };
+    },
+    onError: (err, variables, context) => {
+      // If the mutation fails, use the context returned from onMutate to roll back
+      if (context?.previousParticipants) {
+        queryClient.setQueryData(
+          ['/api/shadow-sessions', shadowSession.post_id, 'participants'],
+          context.previousParticipants
+        );
+      }
+      console.error('Failed to join session:', err);
+    },
     onSuccess: () => {
+      // Invalidate and refetch to get the accurate data
       queryClient.invalidateQueries({ queryKey: ['/api/shadow-sessions', shadowSession.post_id, 'participants'] });
+      // Also invalidate the joined sessions list
+      queryClient.invalidateQueries({ queryKey: ['/api/shadow-sessions/joined'] });
     }
   });
 
@@ -89,7 +123,7 @@ export const ShadowSessionCard: FC<ShadowSessionCardProps> = ({ post, emotions }
         <div className="flex items-start space-x-3">
           <AvatarWithEmotion 
             user={post.author}
-            emotionIds={post.emotion_ids}
+            emotionOverrides={post.emotion_ids}
           />
           
           <div className="flex-1 min-w-0">
@@ -187,7 +221,24 @@ export const ShadowSessionCard: FC<ShadowSessionCardProps> = ({ post, emotions }
           </div>
         </div>
         
-        <p className="text-sm">{post.content}</p>
+        {isActive && (
+          <Tabs defaultValue="description" className="mt-4">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="description">About</TabsTrigger>
+              <TabsTrigger value="chat">Chat</TabsTrigger>
+            </TabsList>
+            <TabsContent value="description" className="pt-4">
+              <p className="text-sm">{post.content}</p>
+            </TabsContent>
+            <TabsContent value="chat" className="pt-4 h-72">
+              <ShadowSessionChat sessionId={shadowSession.post_id} isActive={isActive} />
+            </TabsContent>
+          </Tabs>
+        )}
+
+        {!isActive && (
+          <p className="text-sm">{post.content}</p>
+        )}
       </CardContent>
       
       <CardFooter className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
@@ -211,13 +262,15 @@ export const ShadowSessionCard: FC<ShadowSessionCardProps> = ({ post, emotions }
           </Button>
         </div>
         
-        <Button 
-          variant="ghost"
-          size="sm"
-          className="text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
-        >
-          <Bookmark className="h-4 w-4" />
-        </Button>
+        <Link href={`/shadow-sessions/${shadowSession.post_id}`}>
+          <Button 
+            variant="outline"
+            size="sm"
+            className="text-primary-600 dark:text-primary-400 border-primary-200 dark:border-primary-800"
+          >
+            View Details
+          </Button>
+        </Link>
       </CardFooter>
       
       <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">

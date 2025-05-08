@@ -166,7 +166,7 @@ export const updateProfileSchema = z.object({
 
 export const createPostSchema = z.object({
   content: z.string().optional(),
-  emotion_ids: z.array(z.number()).min(1).max(3),
+  emotion_ids: z.array(z.number()).min(0),
   audience: z.enum(["everyone", "friends", "just_me", "friend_group", "group"]),
   friend_group_ids: z.array(z.string()).optional(),
   media: z.any().optional(),

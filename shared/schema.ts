@@ -11,7 +11,7 @@ export const postParentEnum = pgEnum('post_parent_enum', ['profile', 'friend_gro
 export const audienceEnum = pgEnum('audience_enum', ['everyone', 'friends', 'just_me', 'friend_group', 'group']);
 export const messageTypeEnum = pgEnum('message_type_enum', ['text', 'emoji', 'file']);
 export const reactionTypeEnum = pgEnum('reaction_type_enum', ['like', 'love', 'laugh', 'care', 'wow', 'sad', 'angry', 'emoji']);
-export const eventTypeEnum = pgEnum('event_type_enum', ['friendship_accepted', 'message_sent', 'shadow_session_created', 'post_created', 'post_liked', 'post_commented']);
+export const eventTypeEnum = pgEnum('event_type_enum', ['friendship_accepted', 'message_sent', 'shadow_session_created', 'post_created', 'post_liked', 'post_commented', 'friendship_request', 'shadow_session_reminder', 'group_invite', 'friend_group_invite']);
 
 // Define Tables
 
@@ -211,12 +211,34 @@ export const shadow_session_participants = pgTable('shadow_session_participants'
   };
 });
 
+// Shadow Session Messages
+export const session_messages = pgTable('session_messages', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  session_id: uuid('session_id').references(() => shadow_sessions.post_id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').references(() => users.user_id, { onDelete: 'cascade' }),
+  message_type: varchar('message_type', { length: 20 }).default('text').notNull(),
+  content: text('content').notNull(),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow()
+});
+
 // Feed Events
 export const feed_events = pgTable('feed_events', {
   event_id: bigserial('event_id', { mode: 'number' }).primaryKey(),
   user_id_actor: uuid('user_id_actor').references(() => users.user_id),
   event_type: eventTypeEnum('event_type'),
   payload: jsonb('payload'),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow()
+});
+
+// Notifications
+export const notifications = pgTable('notifications', {
+  notification_id: uuid('notification_id').primaryKey().defaultRandom(),
+  recipient_user_id: uuid('recipient_user_id').references(() => users.user_id, { onDelete: 'cascade' }),
+  sender_user_id: uuid('sender_user_id').references(() => users.user_id, { onDelete: 'set null' }),
+  type: eventTypeEnum('type').notNull(),
+  content: text('content').notNull(),
+  related_item_id: text('related_item_id'), // Can be post_id, session_id, etc.
+  is_read: boolean('is_read').default(false),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow()
 });
 
@@ -259,6 +281,11 @@ export const insertCommentSchema = createInsertSchema(post_comments).omit({
 
 export const insertShadowSessionSchema = createInsertSchema(shadow_sessions);
 
+export const insertNotificationSchema = createInsertSchema(notifications).omit({
+  notification_id: true,
+  created_at: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -280,3 +307,6 @@ export type InsertComment = z.infer<typeof insertCommentSchema>;
 
 export type ShadowSession = typeof shadow_sessions.$inferSelect;
 export type InsertShadowSession = z.infer<typeof insertShadowSessionSchema>;
+
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;

@@ -1,6 +1,7 @@
 import { FC, useState } from "react";
 import { Card, CardContent, CardHeader, CardFooter } from "@/components/ui/card";
 import { AvatarWithEmotion } from "@/components/ui/avatar-with-emotion";
+import { AvatarWithRing } from "@/components/ui/avatar-with-ring";
 import { EmotionBadge } from "@/components/ui/emotion-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,13 +15,13 @@ import {
   MoreHorizontal,
   Globe,
   Users,
-  Lock,
-  Heart as HeartFilled
+  Lock
 } from "lucide-react";
 import { Post, Comment, User, Emotion } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { MediaGallery } from "@/components/ui/media-gallery";
 
 interface PostCardProps {
   post: Post;
@@ -45,7 +46,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   // Like/unlike post mutation
   const toggleLikeMutation = useMutation({
     mutationFn: async () => {
-      if (userReaction) {
+      if (userReaction && typeof userReaction === 'object' && 'reaction_id' in userReaction) {
         return apiRequest('DELETE', `/api/posts/${post.post_id}/reactions/${userReaction.reaction_id}`);
       } else {
         return apiRequest('POST', `/api/posts/${post.post_id}/reactions`, {
@@ -106,7 +107,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
     <Card className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
       <CardHeader className="p-4">
         <div className="flex items-start space-x-3">
-          <AvatarWithEmotion 
+          <AvatarWithRing 
             user={post.author}
             emotionIds={post.emotion_ids}
           />
@@ -150,11 +151,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
         <p className="text-sm mb-3">{post.content}</p>
         
         {post.media && post.media.length > 0 && (
-          <img 
-            src={post.media[0].media_url} 
-            alt="Post attachment"
-            className="w-full rounded-lg" 
-          />
+          <MediaGallery media={post.media} className="mt-3" />
         )}
       </CardContent>
       
@@ -166,8 +163,8 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
             className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
             onClick={() => toggleLikeMutation.mutate()}
           >
-            {userReaction ? (
-              <HeartFilled className="mr-1.5 h-4 w-4 fill-red-500 text-red-500" />
+            {userReaction && typeof userReaction === 'object' && 'reaction_id' in userReaction ? (
+              <Heart className="mr-1.5 h-4 w-4 fill-red-500 text-red-500" />
             ) : (
               <Heart className="mr-1.5 h-4 w-4" />
             )}
@@ -197,7 +194,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
         <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
           {comments.slice(0, 2).map(comment => (
             <div key={comment.comment_id} className="flex items-start space-x-3 mb-3">
-              <AvatarWithEmotion 
+              <AvatarWithRing 
                 user={comment.author}
                 size="sm"
               />
@@ -225,7 +222,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
       
       <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center space-x-3">
-          <AvatarWithEmotion 
+          <AvatarWithRing 
             user={user!}
             size="sm"
           />

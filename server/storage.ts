@@ -4,11 +4,17 @@ import { createInsertSchema } from "drizzle-zod";
 import { users, profiles, friends, friend_groups, friend_group_members, 
          groups, group_members, emotions, posts, post_audience, post_media, 
          post_reactions, post_comments, shadow_sessions, shadow_session_participants,
-         chat_rooms, chat_room_members, messages } from "@shared/schema";
+         chat_rooms, chat_room_members, messages, session_messages,
+         notifications, InsertNotification, Notification } from "@shared/schema";
 import { z } from "zod";
 import connectPg from "connect-pg-simple";
 import session from "express-session";
 import pg from 'pg';
+import dotenv from "dotenv";
+import express from "express";
+import pgSession from "connect-pg-simple";
+import { drizzle } from "drizzle-orm/neon-serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
 
 const PostgresSessionStore = connectPg(session);
 
@@ -29,6 +35,8 @@ export interface IStorage {
   getPosts(userId?: string, emotionFilter?: number[]): Promise<any[]>;
   getPostById(postId: string): Promise<any>;
   createPost(data: any): Promise<any>;
+  getPostsByUser(userId: string): Promise<any[]>;
+  getPostReactionsCount(postId: string): Promise<number>;
   
   // Comment methods
   getPostComments(postId: string): Promise<any[]>;
@@ -44,6 +52,7 @@ export interface IStorage {
   getPendingConnectionRequests(userId: string): Promise<any[]>;
   getConnectionSuggestions(userId: string): Promise<any[]>;
   getOnlineConnections(userId: string): Promise<any[]>;
+  getConnectionStatus(userId: string, targetUserId: string): Promise<string>;
   sendFriendRequest(userId: string, friendId: string): Promise<void>;
   acceptFriendRequest(userId: string, friendId: string): Promise<void>;
   rejectFriendRequest(userId: string, friendId: string): Promise<void>;
@@ -52,6 +61,13 @@ export interface IStorage {
   // Friend Group (Circle) methods
   getUserFriendGroups(userId: string): Promise<any[]>;
   createFriendGroup(data: any): Promise<any>;
+  canAccessFriendGroup(groupId: string, userId: string): Promise<boolean>;
+  isFriendGroupOwner(groupId: string, userId: string): Promise<boolean>;
+  getFriendGroupMembers(groupId: string): Promise<any[]>;
+  areUsersConnected(userId1: string, userId2: string): Promise<boolean>;
+  addFriendGroupMember(groupId: string, userId: string): Promise<void>;
+  removeFriendGroupMember(groupId: string, userId: string): Promise<void>;
+  deleteFriendGroup(groupId: string): Promise<void>;
   
   // Group (Space) methods
   getGroups(options?: any): Promise<any[]>;
@@ -69,6 +85,7 @@ export interface IStorage {
   createShadowSession(data: any): Promise<any>;
   joinShadowSession(sessionId: string, userId: string): Promise<void>;
   getShadowSessionParticipants(sessionId: string): Promise<any[]>;
+  getShadowSession(postId: string): Promise<any>;
   
   // Chat methods
   getChatRooms(userId: string): Promise<any[]>;
@@ -77,6 +94,18 @@ export interface IStorage {
   
   // Online status
   updateUserOnlineStatus(userId: string, isOnline: boolean): Promise<void>;
+  
+  // Notification methods
+  createNotification(notification: InsertNotification): Promise<Notification>;
+  getUserNotifications(userId: string, limit?: number, offset?: number): Promise<Notification[]>;
+  markNotificationAsRead(notificationId: string): Promise<void>;
+  markAllNotificationsAsRead(userId: string): Promise<void>;
+  deleteNotification(notificationId: string): Promise<void>;
+  
+  // Media methods
+  uploadPostMedia(filePath: string, fileName: string, postId: string): Promise<string>;
+  getPostMedia(postId: string): Promise<any[]>;
+  deleteMedia(mediaId: string): Promise<void>;
   
   // Session store
   sessionStore: session.Store;
@@ -644,6 +673,116 @@ export class DatabaseStorage implements IStorage {
     };
   }
   
+  // NEW: Check if user can access a friend group
+  async canAccessFriendGroup(groupId: string, userId: string): Promise<boolean> {
+    // Check if user is a member of the friend group
+    const membership = await db.select()
+      .from(friend_group_members)
+      .where(and(
+        eq(friend_group_members.friend_group_id, groupId),
+        eq(friend_group_members.user_id, userId)
+      ))
+      .limit(1);
+    
+    return membership.length > 0;
+  }
+
+  // NEW: Check if user is the owner of a friend group
+  async isFriendGroupOwner(groupId: string, userId: string): Promise<boolean> {
+    const group = await db.select()
+      .from(friend_groups)
+      .where(and(
+        eq(friend_groups.friend_group_id, groupId),
+        eq(friend_groups.owner_user_id, userId)
+      ))
+      .limit(1);
+    
+    return group.length > 0;
+  }
+
+  // NEW: Get all members of a friend group
+  async getFriendGroupMembers(groupId: string): Promise<any[]> {
+    const members = await db.select({
+        user: users,
+        profile: profiles,
+        role: friend_group_members.role
+      })
+      .from(friend_group_members)
+      .innerJoin(users, eq(friend_group_members.user_id, users.user_id))
+      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+      .where(eq(friend_group_members.friend_group_id, groupId));
+    
+    return members.map(member => ({
+      ...member.user,
+      profile: member.profile,
+      role: member.role
+    }));
+  }
+
+  // NEW: Check if two users are connected
+  async areUsersConnected(userId1: string, userId2: string): Promise<boolean> {
+    const connection = await db.select()
+      .from(friends)
+      .where(
+        or(
+          and(
+            eq(friends.user_id, userId1),
+            eq(friends.friend_id, userId2),
+            eq(friends.status, 'accepted')
+          ),
+          and(
+            eq(friends.user_id, userId2),
+            eq(friends.friend_id, userId1),
+            eq(friends.status, 'accepted')
+          )
+        )
+      )
+      .limit(1);
+    
+    return connection.length > 0;
+  }
+
+  // NEW: Add a member to a friend group
+  async addFriendGroupMember(groupId: string, userId: string): Promise<void> {
+    // Check if already a member
+    const existingMember = await db.select()
+      .from(friend_group_members)
+      .where(and(
+        eq(friend_group_members.friend_group_id, groupId),
+        eq(friend_group_members.user_id, userId)
+      ))
+      .limit(1);
+    
+    if (existingMember.length === 0) {
+      await db.insert(friend_group_members)
+        .values({
+          friend_group_id: groupId,
+          user_id: userId,
+          role: 'member'
+        });
+    }
+  }
+
+  // NEW: Remove a member from a friend group
+  async removeFriendGroupMember(groupId: string, userId: string): Promise<void> {
+    await db.delete(friend_group_members)
+      .where(and(
+        eq(friend_group_members.friend_group_id, groupId),
+        eq(friend_group_members.user_id, userId)
+      ));
+  }
+
+  // NEW: Delete a friend group
+  async deleteFriendGroup(groupId: string): Promise<void> {
+    // Delete all member relationships first
+    await db.delete(friend_group_members)
+      .where(eq(friend_group_members.friend_group_id, groupId));
+    
+    // Then delete the group itself
+    await db.delete(friend_groups)
+      .where(eq(friend_groups.friend_group_id, groupId));
+  }
+  
   // Group (Space) methods
   async getGroups(options: any = {}): Promise<any[]> {
     let query = db.select()
@@ -833,6 +972,7 @@ export class DatabaseStorage implements IStorage {
   // Shadow Session methods
   async getUpcomingShadowSessions(): Promise<any[]> {
     const now = new Date();
+    const nowIsoString = now.toISOString();
     
     // Get shadow sessions starting in the future
     const sessionsData = await db.select({
@@ -841,7 +981,7 @@ export class DatabaseStorage implements IStorage {
       })
       .from(shadow_sessions)
       .innerJoin(posts, eq(shadow_sessions.post_id, posts.post_id))
-      .where(gte(shadow_sessions.starts_at, sql`${now}`))
+      .where(gte(shadow_sessions.starts_at, sql`${nowIsoString}`))
       .orderBy(shadow_sessions.starts_at);
     
     // Get additional details for each session
@@ -887,6 +1027,7 @@ export class DatabaseStorage implements IStorage {
   
   async getActiveShadowSessions(): Promise<any[]> {
     const now = new Date();
+    const nowIsoString = now.toISOString();
     
     // Get shadow sessions happening now
     const sessionsData = await db.select({
@@ -897,8 +1038,8 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(posts, eq(shadow_sessions.post_id, posts.post_id))
       .where(
         and(
-          lte(shadow_sessions.starts_at, sql`${now}`),
-          gte(shadow_sessions.ends_at, sql`${now}`)
+          lte(shadow_sessions.starts_at, sql`${nowIsoString}`),
+          gte(shadow_sessions.ends_at, sql`${nowIsoString}`)
         )
       )
       .orderBy(shadow_sessions.starts_at);
@@ -946,6 +1087,7 @@ export class DatabaseStorage implements IStorage {
   
   async getUserJoinedShadowSessions(userId: string): Promise<any[]> {
     const now = new Date();
+    const nowIsoString = now.toISOString();
     
     // Get shadow sessions that the user has joined
     const joinedSessionsData = await db.select({
@@ -958,7 +1100,7 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(shadow_session_participants.user_id, userId),
-          gte(shadow_sessions.starts_at, sql`${now}`) // Only upcoming
+          gte(shadow_sessions.starts_at, sql`${nowIsoString}`) // Only upcoming
         )
       )
       .orderBy(shadow_sessions.starts_at);
@@ -1006,6 +1148,7 @@ export class DatabaseStorage implements IStorage {
   
   async getPastShadowSessions(): Promise<any[]> {
     const now = new Date();
+    const nowIsoString = now.toISOString();
     
     // Get shadow sessions that have ended
     const sessionsData = await db.select({
@@ -1014,7 +1157,7 @@ export class DatabaseStorage implements IStorage {
       })
       .from(shadow_sessions)
       .innerJoin(posts, eq(shadow_sessions.post_id, posts.post_id))
-      .where(lte(shadow_sessions.ends_at, sql`${now}`))
+      .where(lte(shadow_sessions.ends_at, sql`${nowIsoString}`))
       .orderBy(desc(shadow_sessions.ends_at))
       .limit(10);
     
@@ -1161,10 +1304,490 @@ export class DatabaseStorage implements IStorage {
     if (isOnline) {
       // Update last seen time
       const now = new Date();
+      const nowIsoString = now.toISOString();
       await db.update(profiles)
-        .set({ last_seen_at: sql`${now}` })
+        .set({ last_seen_at: sql`${nowIsoString}` })
         .where(eq(profiles.user_id, userId));
     }
+  }
+
+  // Get posts by a specific user
+  async getPostsByUser(userId: string): Promise<any[]> {
+    try {
+      console.log(`Getting posts for user ${userId}`);
+      
+      const result = await db
+        .select()
+        .from(posts)
+        .where(eq(posts.author_user_id, userId))
+        .orderBy(desc(posts.created_at));
+      
+      console.log(`Found ${result.length} posts for user ${userId}`);
+      return result;
+    } catch (error) {
+      console.error('Error getting posts by user:', error);
+      throw error;
+    }
+  }
+
+  // Get shadow session data for a specific post
+  async getShadowSession(postId: string): Promise<any> {
+    try {
+      console.log(`Getting shadow session for post ${postId}`);
+      
+      const [session] = await db
+        .select()
+        .from(shadow_sessions)
+        .where(eq(shadow_sessions.post_id, postId));
+      
+      if (!session) {
+        return null;
+      }
+      
+      // Get participants
+      const participants = await this.getShadowSessionParticipants(postId);
+      
+      return {
+        ...session,
+        participants
+      };
+    } catch (error) {
+      console.error('Error getting shadow session:', error);
+      throw error;
+    }
+  }
+
+  // Get reaction count for a post
+  async getPostReactionsCount(postId: string): Promise<number> {
+    try {
+      const [result] = await db
+        .select({
+          count: sql<number>`count(*)`
+        })
+        .from(post_reactions)
+        .where(eq(post_reactions.post_id, postId));
+      
+      return Number(result.count);
+    } catch (error) {
+      console.error('Error getting post reactions count:', error);
+      return 0;
+    }
+  }
+
+  // Add this method to the DatabaseStorage class
+  async getUserById(userId: string): Promise<any> {
+    if (!userId) return null;
+    
+    try {
+      const [userData] = await db.select({
+        user: users,
+        profile: profiles
+      })
+      .from(users)
+      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+      .where(eq(users.user_id, userId));
+      
+      if (!userData) return null;
+      
+      return {
+        ...userData.user,
+        profile: userData.profile
+      };
+    } catch (error) {
+      console.error('Error getting user by ID:', error);
+      throw error;
+    }
+  }
+
+  // Check if a user is a participant in a shadow session
+  async isUserSessionParticipant(sessionId: string, userId: string): Promise<boolean> {
+    try {
+      // First check if the user is the creator of the session
+      const session = await this.getShadowSession(sessionId);
+      if (session?.creator?.user_id === userId) {
+        return true;
+      }
+
+      // Then check if the user is a participant
+      const participants = await db
+        .select()
+        .from(shadow_session_participants)
+        .where(and(
+          eq(shadow_session_participants.session_id, sessionId),
+          eq(shadow_session_participants.user_id, userId)
+        ));
+
+      return participants.length > 0;
+    } catch (error) {
+      console.error("Error checking session participation:", error);
+      return false;
+    }
+  }
+
+  // Upload session media to Supabase Storage
+  async uploadSessionMedia(filePath: string, fileName: string, sessionId: string): Promise<string> {
+    try {
+      const fs = await import('fs');
+      const fileData = fs.readFileSync(filePath);
+      const fileExt = fileName.split('.').pop();
+      const timestamp = Date.now();
+      const uniqueFileName = `session_${sessionId}_${timestamp}.${fileExt}`;
+      
+      // Upload to Supabase Storage
+      const { data, error } = await supabase
+        .storage
+        .from('shadow-session-media')
+        .upload(uniqueFileName, fileData, {
+          contentType: this.getMimeType(fileExt || ''),
+          upsert: false
+        });
+      
+      if (error) {
+        throw error;
+      }
+
+      // Generate a public URL for the uploaded file
+      const { data: { publicUrl } } = supabase
+        .storage
+        .from('shadow-session-media')
+        .getPublicUrl(uniqueFileName);
+
+      // Clean up the temporary file
+      fs.unlinkSync(filePath);
+      
+      return publicUrl;
+    } catch (error) {
+      console.error("Error uploading session media:", error);
+      throw error;
+    }
+  }
+
+  // Create a session media message
+  async createSessionMediaMessage(message: any): Promise<void> {
+    try {
+      // Insert the message into the database
+      await db
+        .insert(session_messages)
+        .values({
+          session_id: message.sessionId,
+          user_id: message.userId,
+          message_type: 'media',
+          content: JSON.stringify({
+            mediaUrl: message.mediaUrl,
+            mediaType: message.mediaType
+          })
+        });
+      
+    } catch (error) {
+      console.error("Error creating session media message:", error);
+      throw error;
+    }
+  }
+
+  // Upload post media to Supabase Storage
+  async uploadPostMedia(filePath: string, fileName: string, postId: string): Promise<string> {
+    try {
+      const fs = await import('fs');
+      const fileData = fs.readFileSync(filePath);
+      const fileExt = fileName.split('.').pop();
+      const timestamp = Date.now();
+      const uniqueFileName = `post_${postId}_${timestamp}.${fileExt}`;
+      
+      // Upload to Supabase Storage
+      const { data, error } = await supabase
+        .storage
+        .from('post-media')
+        .upload(uniqueFileName, fileData, {
+          contentType: this.getMimeType(fileExt || ''),
+          upsert: false
+        });
+      
+      if (error) {
+        throw error;
+      }
+
+      // Generate a public URL for the uploaded file
+      const { data: { publicUrl } } = supabase
+        .storage
+        .from('post-media')
+        .getPublicUrl(uniqueFileName);
+
+      // Clean up the temporary file
+      fs.unlinkSync(filePath);
+      
+      // Add entry to post_media table
+      await db.insert(post_media).values({
+        post_id: postId,
+        media_url: publicUrl,
+        media_type: this.getMimeType(fileExt || '')
+      });
+      
+      return publicUrl;
+    } catch (error) {
+      console.error("Error uploading post media:", error);
+      throw error;
+    }
+  }
+
+  // Upload user avatar to Supabase Storage
+  async uploadUserAvatar(filePath: string, fileName: string, userId: string): Promise<string> {
+    try {
+      const fs = await import('fs');
+      const fileData = fs.readFileSync(filePath);
+      const fileExt = fileName.split('.').pop();
+      const timestamp = Date.now();
+      const uniqueFileName = `avatar_${userId}_${timestamp}.${fileExt}`;
+      
+      // Check if user-avatars bucket exists, if not we'll use post-media
+      const bucketName = 'user-avatars';
+      
+      // Upload to Supabase Storage
+      const { data, error } = await supabase
+        .storage
+        .from(bucketName)
+        .upload(uniqueFileName, fileData, {
+          contentType: this.getMimeType(fileExt || ''),
+          upsert: true // Override previous avatar if it exists
+        });
+      
+      if (error) {
+        console.error("Error uploading to user-avatars bucket, trying post-media instead:", error);
+        // Fallback to post-media bucket if user-avatars doesn't exist
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .storage
+          .from('post-media')
+          .upload(uniqueFileName, fileData, {
+            contentType: this.getMimeType(fileExt || ''),
+            upsert: true
+          });
+        
+        if (fallbackError) {
+          throw fallbackError;
+        }
+        
+        // Generate a public URL for the uploaded file from post-media bucket
+        const { data: { publicUrl } } = supabase
+          .storage
+          .from('post-media')
+          .getPublicUrl(uniqueFileName);
+        
+        // Clean up the temporary file
+        fs.unlinkSync(filePath);
+        
+        return publicUrl;
+      }
+
+      // Generate a public URL for the uploaded file
+      const { data: { publicUrl } } = supabase
+        .storage
+        .from(bucketName)
+        .getPublicUrl(uniqueFileName);
+
+      // Clean up the temporary file
+      fs.unlinkSync(filePath);
+      
+      return publicUrl;
+    } catch (error) {
+      console.error("Error uploading user avatar:", error);
+      throw error;
+    }
+  }
+
+  // Get media for a post
+  async getPostMedia(postId: string): Promise<any[]> {
+    try {
+      return db.select()
+        .from(post_media)
+        .where(eq(post_media.post_id, postId))
+        .orderBy(post_media.created_at);
+    } catch (error) {
+      console.error("Error getting post media:", error);
+      return [];
+    }
+  }
+
+  // Delete media
+  async deleteMedia(mediaId: string): Promise<void> {
+    try {
+      // Get media details first
+      const [media] = await db.select()
+        .from(post_media)
+        .where(eq(post_media.media_id, mediaId));
+      
+      if (!media) return;
+      
+      // Extract filename from URL
+      const urlParts = media.media_url.split('/');
+      const filename = urlParts[urlParts.length - 1];
+      
+      // Delete from Supabase storage
+      const { error } = await supabase
+        .storage
+        .from('post-media')
+        .remove([filename]);
+      
+      if (error) {
+        console.error("Error deleting from storage:", error);
+      }
+      
+      // Delete from database
+      await db.delete(post_media)
+        .where(eq(post_media.media_id, mediaId));
+        
+    } catch (error) {
+      console.error("Error deleting media:", error);
+      throw error;
+    }
+  }
+
+  // Get media messages for a shadow session
+  async getSessionMediaMessages(sessionId: string): Promise<any[]> {
+    try {
+      // Get media type messages from the session_messages table
+      const mediaMessages = await db
+        .select()
+        .from(session_messages)
+        .where(and(
+          eq(session_messages.session_id, sessionId),
+          eq(session_messages.message_type, 'media')
+        ))
+        .orderBy(desc(session_messages.created_at));
+      
+      // Transform the data for the frontend
+      return mediaMessages.map(message => {
+        // Parse the content JSON
+        const content = JSON.parse(message.content);
+        
+        return {
+          id: message.id.toString(),
+          mediaUrl: content.mediaUrl,
+          mediaType: content.mediaType,
+          userId: message.user_id,
+          createdAt: message.created_at
+        };
+      });
+    } catch (error) {
+      console.error("Error getting session media messages:", error);
+      return [];
+    }
+  }
+
+  // Get connection status between users
+  async getConnectionStatus(userId: string, targetUserId: string): Promise<string> {
+    // Check if there's an accepted connection (friendship)
+    const [acceptedConnection] = await db.select()
+      .from(friends)
+      .where(
+        and(
+          eq(friends.user_id, userId),
+          eq(friends.friend_id, targetUserId),
+          eq(friends.status, 'accepted')
+        )
+      );
+    
+    if (acceptedConnection) {
+      return 'connected';
+    }
+    
+    // Check if there's a pending request from the target user to the current user
+    const [incomingRequest] = await db.select()
+      .from(friends)
+      .where(
+        and(
+          eq(friends.user_id, targetUserId),
+          eq(friends.friend_id, userId),
+          eq(friends.status, 'pending')
+        )
+      );
+    
+    if (incomingRequest) {
+      return 'pending_incoming';
+    }
+    
+    // Check if there's a pending request from the current user to the target user
+    const [outgoingRequest] = await db.select()
+      .from(friends)
+      .where(
+        and(
+          eq(friends.user_id, userId),
+          eq(friends.friend_id, targetUserId),
+          eq(friends.status, 'pending')
+        )
+      );
+    
+    if (outgoingRequest) {
+      return 'pending_outgoing';
+    }
+    
+    // No connection found
+    return 'none';
+  }
+
+  // Helper to get MIME type from file extension
+  private getMimeType(extension: string): string {
+    const mimeTypes: {[key: string]: string} = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp',
+      'pdf': 'application/pdf',
+      'mp4': 'video/mp4',
+      'mp3': 'audio/mpeg'
+    };
+    
+    return mimeTypes[extension.toLowerCase()] || 'application/octet-stream';
+  }
+
+  // Notification methods
+  async createNotification(notification: InsertNotification): Promise<Notification> {
+    const [newNotification] = await db.insert(notifications)
+      .values(notification)
+      .returning();
+    
+    return newNotification;
+  }
+
+  async getUserNotifications(userId: string, limit: number = 20, offset: number = 0): Promise<Notification[]> {
+    const userNotifications = await db.select({
+      notification: notifications,
+      sender: {
+        ...users,
+        profile: profiles
+      }
+    })
+    .from(notifications)
+    .leftJoin(users, eq(notifications.sender_user_id, users.user_id))
+    .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+    .where(eq(notifications.recipient_user_id, userId))
+    .orderBy(desc(notifications.created_at))
+    .limit(limit)
+    .offset(offset);
+    
+    return userNotifications.map(item => ({
+      ...item.notification,
+      sender: item.sender ? {
+        ...item.sender,
+        profile: item.sender.profile
+      } : null
+    }));
+  }
+
+  async markNotificationAsRead(notificationId: string): Promise<void> {
+    await db.update(notifications)
+      .set({ is_read: true })
+      .where(eq(notifications.notification_id, notificationId));
+  }
+
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    await db.update(notifications)
+      .set({ is_read: true })
+      .where(eq(notifications.recipient_user_id, userId));
+  }
+
+  async deleteNotification(notificationId: string): Promise<void> {
+    await db.delete(notifications)
+      .where(eq(notifications.notification_id, notificationId));
   }
 }
 

@@ -2,12 +2,13 @@ import { FC, useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AvatarWithEmotion } from "@/components/ui/avatar-with-emotion";
+import { AvatarWithRing } from "@/components/ui/avatar-with-ring";
 import { Textarea } from "@/components/ui/textarea";
 import { EmotionSelector } from "@/components/ui/emotion-selector";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { ChevronDown, Globe, Image, PenSquare, Users, Lock, CalendarIcon, Clock, SmilePlus, Tag } from "lucide-react";
+import { ChevronDown, Globe, Image, PenSquare, Users, Lock, CalendarIcon, Clock, SmilePlus, Tag, X } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -64,10 +65,8 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
 
   // Handle form submission
   const handleSubmit = () => {
-    if (selectedEmotions.length === 0) {
-      return; // Require at least one emotion
-    }
-
+    // Emotions are now optional, so we don't need to check for them
+    
     const formData = new FormData();
     formData.append('content', content);
     formData.append('emotion_ids', JSON.stringify(selectedEmotions));
@@ -122,9 +121,33 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
   const handleMediaChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        // Add toast notification here if you have a toast component
+        console.error('Only image files are supported');
+        return;
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        // Add toast notification here if you have a toast component
+        console.error('File size exceeds 5MB limit');
+        return;
+      }
+      
       setMedia(file);
       setPreviewUrl(URL.createObjectURL(file));
     }
+  };
+  
+  // Remove media
+  const handleRemoveMedia = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setMedia(null);
+    setPreviewUrl(null);
   };
   
   // Clean up preview URL when component unmounts
@@ -177,7 +200,10 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
         
         <div className="space-y-4">
           <div className="flex items-center space-x-3">
-            <AvatarWithEmotion user={user!} />
+            <AvatarWithRing 
+              user={user!} 
+              emotionIds={selectedEmotions}
+            />
             
             <div>
               <h3 className="font-medium text-sm">{user?.profile?.display_name}</h3>
@@ -261,36 +287,32 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
           </div>
           
           <Textarea
-            placeholder="How are you feeling today?"
-            className="w-full rounded-lg bg-gray-50 dark:bg-gray-700 border-0 p-3 text-sm resize-none focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400"
-            rows={4}
+            placeholder="What's on your mind?"
+            className="min-h-[120px] resize-none"
             value={content}
             onChange={(e) => setContent(e.target.value)}
           />
           
           {previewUrl && (
-            <div className="relative">
+            <div className="relative rounded-lg overflow-hidden border">
               <img 
                 src={previewUrl} 
                 alt="Upload preview" 
-                className="w-full rounded-lg h-48 object-cover"
+                className="w-full max-h-[200px] object-contain"
               />
-              <Button 
-                variant="destructive" 
-                size="sm" 
-                className="absolute top-2 right-2"
-                onClick={() => {
-                  setMedia(null);
-                  setPreviewUrl(null);
-                }}
+              <Button
+                variant="destructive"
+                size="icon"
+                className="absolute top-2 right-2 h-8 w-8 rounded-full"
+                onClick={handleRemoveMedia}
               >
-                Remove
+                <X className="h-4 w-4" />
               </Button>
             </div>
           )}
           
           <div>
-            <div className="text-sm font-medium mb-2">How are you feeling?</div>
+            <h4 className="font-medium text-sm mb-2">How are you feeling?</h4>
             <EmotionSelector 
               emotions={emotions}
               selectedEmotions={selectedEmotions}
@@ -298,7 +320,6 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
             />
           </div>
           
-          {/* Shadow Session Fields */}
           <div className="pt-2">
             <div className="flex items-center justify-between mb-2">
               <Label htmlFor="shadow-session-switch" className="font-medium text-sm">
@@ -399,63 +420,46 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
           
           <Separator className="my-2" />
           
-          <div className="flex items-center justify-between">
-            <div className="text-sm font-medium">Add to your post</div>
+          <div className="flex justify-between items-center pt-4 border-t">
             <div className="flex space-x-2">
-              <label className="cursor-pointer">
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  className="hidden" 
-                  onChange={handleMediaChange}
-                />
-                <Button 
-                  variant="ghost"
-                  size="icon"
-                  type="button"
-                  className="h-8 w-8 text-green-600 dark:text-green-400"
-                >
-                  <Image className="h-5 w-5" />
-                </Button>
-              </label>
-              
               <Button 
-                variant="ghost"
-                size="icon"
+                variant="outline" 
+                size="sm"
+                className="text-sm" 
                 type="button"
-                className="h-8 w-8 text-blue-600 dark:text-blue-400"
+                onClick={() => document.getElementById('media-upload')?.click()}
               >
-                <Tag className="h-5 w-5" />
+                <Image className="h-4 w-4 mr-2" />
+                Add Photo
               </Button>
+              <input 
+                type="file" 
+                id="media-upload" 
+                className="hidden" 
+                accept="image/*"
+                onChange={handleMediaChange}
+              />
               
               <Button 
-                variant="ghost"
-                size="icon"
+                variant="outline" 
+                size="sm"
+                className="text-sm" 
                 type="button"
-                className="h-8 w-8 text-yellow-600 dark:text-yellow-400"
-              >
-                <SmilePlus className="h-5 w-5" />
-              </Button>
-              
-              <Button 
-                variant="ghost"
-                size="icon"
-                type="button"
-                className="h-8 w-8 text-purple-600 dark:text-purple-400"
                 onClick={() => setIsShadowSession(!isShadowSession)}
               >
-                <Calendar className="h-5 w-5" />
+                <SmilePlus className="h-4 w-4 mr-2" />
+                {isShadowSession ? 'Simple Post' : 'Shadow Session'}
               </Button>
             </div>
+            
+            <Button 
+              type="submit" 
+              disabled={createPostMutation.isPending} 
+              onClick={handleSubmit}
+            >
+              {createPostMutation.isPending ? 'Posting...' : 'Post'}
+            </Button>
           </div>
-          
-          <Button 
-            className="w-full py-2.5"
-            disabled={selectedEmotions.length === 0 || createPostMutation.isPending}
-            onClick={handleSubmit}
-          >
-            {createPostMutation.isPending ? "Posting..." : "Post"}
-          </Button>
         </div>
       </DialogContent>
     </Dialog>

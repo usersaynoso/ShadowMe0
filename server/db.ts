@@ -2,6 +2,15 @@ import { createClient } from '@supabase/supabase-js';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
 import * as schema from "@shared/schema";
+import * as dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
+
+// Debug environment variables
+console.log('SUPABASE_URL exists:', !!process.env.SUPABASE_URL);
+console.log('SUPABASE_KEY exists:', !!process.env.SUPABASE_KEY);
+console.log('DATABASE_URL exists:', !!process.env.DATABASE_URL);
 
 // Check if Supabase credentials are available
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {

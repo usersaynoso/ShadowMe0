@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AvatarWithEmotion } from "@/components/ui/avatar-with-emotion";
-import { CreatePostDialog } from "@/components/create-post-dialog";
+import { CreateShadowSessionDialog } from "@/components/create-shadow-session-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -25,27 +25,31 @@ const ShadowSessionsPage: FC = () => {
   }, []);
   
   // Get upcoming shadow sessions
-  const { data: upcomingSessions = [], isLoading: upcomingLoading } = useQuery<ShadowSession[]>({
+  const { data: upcomingSessions = [], isLoading: upcomingLoading, error: upcomingError } = useQuery<ShadowSession[]>({
     queryKey: ['/api/shadow-sessions/upcoming'],
     enabled: !!user,
+    retry: 2, // Only retry twice on error
   });
   
   // Get sessions current user has joined
-  const { data: myJoinedSessions = [], isLoading: joinedLoading } = useQuery<ShadowSession[]>({
+  const { data: myJoinedSessions = [], isLoading: joinedLoading, error: joinedError } = useQuery<ShadowSession[]>({
     queryKey: ['/api/shadow-sessions/joined'],
     enabled: !!user,
+    retry: 2,
   });
   
   // Get past sessions
-  const { data: pastSessions = [], isLoading: pastLoading } = useQuery<ShadowSession[]>({
+  const { data: pastSessions = [], isLoading: pastLoading, error: pastError } = useQuery<ShadowSession[]>({
     queryKey: ['/api/shadow-sessions/past'],
     enabled: !!user,
+    retry: 2,
   });
   
   // Get active sessions (happening now)
-  const { data: activeSessions = [], isLoading: activeLoading } = useQuery<ShadowSession[]>({
+  const { data: activeSessions = [], isLoading: activeLoading, error: activeError } = useQuery<ShadowSession[]>({
     queryKey: ['/api/shadow-sessions/active'],
     enabled: !!user,
+    retry: 2,
   });
   
   // Join session mutation
@@ -122,12 +126,12 @@ const ShadowSessionsPage: FC = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Shadow Sessions</h1>
-          <CreatePostDialog>
+          <CreateShadowSessionDialog>
             <Button className="flex items-center">
               <Plus className="mr-2 h-4 w-4" />
               Create Session
             </Button>
-          </CreatePostDialog>
+          </CreateShadowSessionDialog>
         </div>
         
         <div className="relative">
@@ -260,9 +264,9 @@ const ShadowSessionsPage: FC = () => {
                     : "There are no upcoming shadow sessions at the moment."}
                 </p>
                 <div className="flex gap-3 justify-center">
-                  <CreatePostDialog>
+                  <CreateShadowSessionDialog>
                     <Button>Schedule Your First Session</Button>
-                  </CreatePostDialog>
+                  </CreateShadowSessionDialog>
                   {searchQuery && (
                     <Button 
                       variant="outline" 

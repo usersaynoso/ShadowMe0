@@ -13,6 +13,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { FriendGroup, User } from "@/types";
 import { Loader2, Search, UserPlus, Users, X, Check, Clock, UserMinus, Heart, BriefcaseBusiness, UserCircle, Plus } from "lucide-react";
+import { ConnectionRequestButton } from "@/components/connection-request-button";
 
 const ConnectionsPage: FC = () => {
   const { user } = useAuth();
@@ -200,15 +201,11 @@ const ConnectionsPage: FC = () => {
                               {suggestion.mutualFriendCount || 0} mutual connection{suggestion.mutualFriendCount !== 1 ? 's' : ''}
                             </p>
                           </div>
-                          <Button 
-                            size="sm" 
+                          <ConnectionRequestButton 
+                            targetUser={suggestion}
+                            size="sm"
                             className="rounded-full text-xs"
-                            onClick={() => connectMutation.mutate(suggestion.user_id)}
-                            disabled={connectMutation.isPending}
-                          >
-                            <UserPlus className="h-4 w-4 mr-1" />
-                            Connect
-                          </Button>
+                          />
                         </div>
                       </CardContent>
                     </Card>

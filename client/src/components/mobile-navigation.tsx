@@ -1,6 +1,6 @@
 import { FC } from "react";
 import { Link, useLocation } from "wouter";
-import { Home, Users, Sparkles, CalendarDays } from "lucide-react";
+import { Home, Users, Sparkles, CalendarDays, UserCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const MobileNavigation: FC = () => {
@@ -9,6 +9,7 @@ export const MobileNavigation: FC = () => {
   const navItems = [
     { href: "/", icon: Home, label: "Home" },
     { href: "/connections", icon: Users, label: "Connections" },
+    { href: "/circles", icon: UserCircle, label: "Circles" },
     { href: "/spaces", icon: Sparkles, label: "Spaces" },
     { href: "/shadow-sessions", icon: CalendarDays, label: "Sessions" }
   ];

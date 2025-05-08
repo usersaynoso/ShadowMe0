@@ -1,6 +1,7 @@
 import { FC, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { useQuery } from "@tanstack/react-query";
+import { Emotion } from "@/types";
 
 interface EmotionRingProps {
   emotionIds: number[];
@@ -8,7 +9,7 @@ interface EmotionRingProps {
 }
 
 export const EmotionRing: FC<EmotionRingProps> = ({ emotionIds, className }) => {
-  const { data: emotions } = useQuery<{ id: number, emotion_color: string }[]>({
+  const { data: emotions } = useQuery<Emotion[]>({
     queryKey: ["/api/emotions"],
   });
 
@@ -19,7 +20,7 @@ export const EmotionRing: FC<EmotionRingProps> = ({ emotionIds, className }) => 
 
     // Get colors for the selected emotion IDs
     const colors = emotionIds
-      .map(id => emotions.find(e => e.id === id)?.emotion_color)
+      .map(id => emotions.find(e => e.id === id)?.color)
       .filter(Boolean) as string[];
 
     if (colors.length === 0) return "transparent";

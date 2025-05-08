@@ -1,6 +1,8 @@
-require('dotenv').config();
-const chalk = require('chalk');
-const { createClient } = require('@supabase/supabase-js');
+import dotenv from 'dotenv';
+import chalk from 'chalk';
+import { createClient } from '@supabase/supabase-js';
+
+dotenv.config();
 
 async function seedEmotions() {
   console.log(chalk.blue('🌱 Seeding emotions table in Supabase...'));
@@ -13,20 +15,20 @@ async function seedEmotions() {
     process.exit(1);
   }
   
-  // Define the default emotions
+  // Define the default emotions (removed emotion_description field)
   const emotions = [
-    { emotion_id: 1, emotion_name: 'Happy', emotion_color: '#FFD700', emotion_description: 'Feeling joy, contentment or satisfaction' },
-    { emotion_id: 2, emotion_name: 'Calm', emotion_color: '#89CFF0', emotion_description: 'Feeling peaceful, tranquil or relaxed' },
-    { emotion_id: 3, emotion_name: 'Sad', emotion_color: '#6495ED', emotion_description: 'Feeling unhappy, down or blue' },
-    { emotion_id: 4, emotion_name: 'Angry', emotion_color: '#FF4500', emotion_description: 'Feeling frustrated, irritated or mad' },
-    { emotion_id: 5, emotion_name: 'Anxious', emotion_color: '#DA70D6', emotion_description: 'Feeling worried, nervous or uneasy' },
-    { emotion_id: 6, emotion_name: 'Excited', emotion_color: '#FF69B4', emotion_description: 'Feeling enthusiastic, eager or thrilled' },
-    { emotion_id: 7, emotion_name: 'Tired', emotion_color: '#708090', emotion_description: 'Feeling exhausted, fatigued or sleepy' },
-    { emotion_id: 8, emotion_name: 'Grateful', emotion_color: '#32CD32', emotion_description: 'Feeling thankful, appreciative or blessed' },
-    { emotion_id: 9, emotion_name: 'Confused', emotion_color: '#9370DB', emotion_description: 'Feeling puzzled, perplexed or uncertain' },
-    { emotion_id: 10, emotion_name: 'Hopeful', emotion_color: '#00CED1', emotion_description: 'Feeling optimistic, encouraged or positive' },
-    { emotion_id: 11, emotion_name: 'Bored', emotion_color: '#A9A9A9', emotion_description: 'Feeling uninterested, weary or restless' },
-    { emotion_id: 12, emotion_name: 'Loving', emotion_color: '#FF1493', emotion_description: 'Feeling affectionate, caring or warm' }
+    { emotion_id: 1, emotion_name: 'Happy', emotion_color: '#FFD700' },
+    { emotion_id: 2, emotion_name: 'Calm', emotion_color: '#89CFF0' },
+    { emotion_id: 3, emotion_name: 'Sad', emotion_color: '#6495ED' },
+    { emotion_id: 4, emotion_name: 'Angry', emotion_color: '#FF4500' },
+    { emotion_id: 5, emotion_name: 'Anxious', emotion_color: '#DA70D6' },
+    { emotion_id: 6, emotion_name: 'Excited', emotion_color: '#FF69B4' },
+    { emotion_id: 7, emotion_name: 'Tired', emotion_color: '#708090' },
+    { emotion_id: 8, emotion_name: 'Grateful', emotion_color: '#32CD32' },
+    { emotion_id: 9, emotion_name: 'Confused', emotion_color: '#9370DB' },
+    { emotion_id: 10, emotion_name: 'Hopeful', emotion_color: '#00CED1' },
+    { emotion_id: 11, emotion_name: 'Bored', emotion_color: '#A9A9A9' },
+    { emotion_id: 12, emotion_name: 'Loving', emotion_color: '#FF1493' }
   ];
   
   try {

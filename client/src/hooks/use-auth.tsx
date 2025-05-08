@@ -56,13 +56,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return await res.json();
     },
     onSuccess: (user: User) => {
+      console.log('Login successful - setting user data and redirecting', user);
       queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Welcome back!",
         description: `Good to see you, ${user.profile?.display_name || 'Friend'}!`,
       });
-      // Add redirect to homepage after successful login
-      navigate("/");
+      
+      // Force navigation with window.location instead of wouter navigate
+      console.log('About to navigate to homepage using window.location...');
+      window.location.href = "/";
     },
     onError: (error: Error) => {
       toast({
@@ -84,8 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         title: "Account created!",
         description: "Welcome to Shadow Me! Your journey begins now.",
       });
-      // Add redirect to homepage after successful registration
-      navigate("/");
+      // Force navigation with window.location instead of wouter navigate
+      console.log('About to navigate to homepage using window.location after registration...');
+      window.location.href = "/";
     },
     onError: (error: Error) => {
       toast({
