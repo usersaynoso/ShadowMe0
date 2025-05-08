@@ -116,6 +116,9 @@ export interface IStorage {
 
   // Add new method
   updateUserLastEmotions(userId: string, emotionIds: number[]): Promise<void>;
+
+  // NEW: Get a user by their ID
+  getUserById(userId: string): Promise<any | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -775,21 +778,49 @@ export class DatabaseStorage implements IStorage {
 
   // NEW: Get all members of a friend group
   async getFriendGroupMembers(groupId: string): Promise<any[]> {
-    const members = await db.select({
-        user: users,
-        profile: profiles,
-        role: friend_group_members.role
-      })
-      .from(friend_group_members)
-      .innerJoin(users, eq(friend_group_members.user_id, users.user_id))
-      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
-      .where(eq(friend_group_members.friend_group_id, groupId));
+    console.log(`[DEBUG] Getting members for friend group ${groupId}`);
     
-    return members.map(member => ({
-      ...member.user,
-      profile: member.profile,
-      role: member.role
-    }));
+    try {
+      const members = await db.select({
+          user: users,
+          profile: profiles,
+          role: friend_group_members.role
+        })
+        .from(friend_group_members)
+        .innerJoin(users, eq(friend_group_members.user_id, users.user_id))
+        .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+        .where(eq(friend_group_members.friend_group_id, groupId));
+      
+      console.log(`[DEBUG] Found ${members.length} raw members for friend group ${groupId}`);
+      
+      // Log raw members data
+      if (members.length > 0) {
+        console.log(`[DEBUG] First raw member:`, JSON.stringify(members[0], null, 2));
+      }
+      
+      // Transform the data structure to what the frontend expects:
+      // Each user should have user_id at the top level, not nested in user property
+      const validMembers = members
+        .filter(member => !!member && !!member.user && typeof member.user.user_id === 'string')
+        .map(member => ({
+          user_id: member.user.user_id, // Add user_id at top level for frontend
+          email: member.user.email,
+          created_at: member.user.created_at,
+          updated_at: member.user.updated_at,
+          profile: member.profile,
+          role: member.role
+        }));
+      
+      console.log(`[DEBUG] Returning ${validMembers.length} valid members after filtering`);
+      if (validMembers.length > 0) {
+        console.log(`[DEBUG] First processed member:`, JSON.stringify(validMembers[0], null, 2));
+      }
+      
+      return validMembers;
+    } catch (error) {
+      console.error(`[ERROR] Failed to get members for friend group ${groupId}:`, error);
+      return [];
+    }
   }
 
   // NEW: Check if two users are connected
@@ -817,6 +848,8 @@ export class DatabaseStorage implements IStorage {
 
   // NEW: Add a member to a friend group
   async addFriendGroupMember(groupId: string, userId: string): Promise<void> {
+    console.log(`[DEBUG] Adding member ${userId} to friend group ${groupId}`);
+    
     // Check if already a member
     const existingMember = await db.select()
       .from(friend_group_members)
@@ -826,14 +859,37 @@ export class DatabaseStorage implements IStorage {
       ))
       .limit(1);
     
+    console.log(`[DEBUG] Existing member check result: ${existingMember.length > 0 ? 'Already a member' : 'Not a member yet'}`);
+    
     if (existingMember.length === 0) {
-      await db.insert(friend_group_members)
-        .values({
-          friend_group_id: groupId,
-          user_id: userId,
-          role: 'member'
-        });
+      try {
+        console.log(`[DEBUG] Inserting new member ${userId} into group ${groupId}`);
+        
+        const result = await db.insert(friend_group_members)
+          .values({
+            friend_group_id: groupId,
+            user_id: userId,
+            role: 'member'
+          })
+          .returning();
+        
+        console.log(`[DEBUG] Insert result:`, result);
+      } catch (error) {
+        console.error(`[ERROR] Failed to add member ${userId} to group ${groupId}:`, error);
+        throw error;
+      }
     }
+    
+    // Verify the member was added successfully
+    const verificationCheck = await db.select()
+      .from(friend_group_members)
+      .where(and(
+        eq(friend_group_members.friend_group_id, groupId),
+        eq(friend_group_members.user_id, userId)
+      ))
+      .limit(1);
+    
+    console.log(`[DEBUG] Verification check: Member ${userId} is ${verificationCheck.length > 0 ? 'now in' : 'still not in'} group ${groupId}`);
   }
 
   // NEW: Remove a member from a friend group
@@ -1476,28 +1532,31 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  // Add this method to the DatabaseStorage class
-  async getUserById(userId: string): Promise<any> {
-    if (!userId) return null;
+  // NEW: Get a user by their ID
+  async getUserById(userId: string): Promise<any | null> {
+    console.log(`[DEBUG] Getting user by ID: ${userId}`);
+    
+    if (!userId) {
+      console.log(`[DEBUG] Invalid user ID: ${userId}`);
+      return null;
+    }
     
     try {
-      const [userData] = await db.select({
-        user: users,
-        profile: profiles
-      })
-      .from(users)
-      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
-      .where(eq(users.user_id, userId));
+      const user = await db.select()
+        .from(users)
+        .where(eq(users.user_id, userId))
+        .limit(1);
       
-      if (!userData) return null;
+      console.log(`[DEBUG] User lookup result: ${user.length ? 'Found' : 'Not found'}`);
       
-      return {
-        ...userData.user,
-        profile: userData.profile
-      };
+      if (user.length === 0) {
+        return null;
+      }
+      
+      return user[0];
     } catch (error) {
-      console.error('Error getting user by ID:', error);
-      throw error;
+      console.error(`[ERROR] Failed to get user by ID ${userId}:`, error);
+      return null;
     }
   }
 

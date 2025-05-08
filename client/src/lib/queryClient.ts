@@ -2,8 +2,32 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let errorMessage: string;
+    try {
+      // Try to parse response as JSON to extract error message
+      const errorData = await res.json();
+      errorMessage = errorData.message || `${res.status}: ${res.statusText}`;
+    } catch (e) {
+      // If response is not JSON, use status text
+      const text = await res.text();
+      errorMessage = text || `${res.status}: ${res.statusText}`;
+    }
+    
+    // Add more context for specific error codes
+    if (res.status === 401) {
+      errorMessage = `Authentication required: ${errorMessage}`;
+      console.error('Authentication error:', errorMessage);
+    } else if (res.status === 403) {
+      errorMessage = `Permission denied: ${errorMessage}`;
+      console.error('Permission error:', errorMessage);
+    } else if (res.status === 400) {
+      errorMessage = `Invalid request: ${errorMessage}`;
+      console.error('Invalid request error:', errorMessage);
+    } else {
+      console.error(`API error (${res.status}):`, errorMessage);
+    }
+    
+    throw new Error(errorMessage);
   }
 }
 

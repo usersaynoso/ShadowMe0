@@ -10,6 +10,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
+import cors from "cors";
 
 // Configure multer for file uploads
 const upload = multer({
@@ -63,14 +64,46 @@ async function createUserNotification(
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Set up authentication routes
-  setupAuth(app);
-
   // Create HTTP server
   const httpServer = createServer(app);
   
   // Set up WebSockets
   setupWebSockets(httpServer);
+
+  // Debug middleware to log request details
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      console.log(`[DEBUG] ${req.method} ${req.path}`);
+      console.log(`[DEBUG] Headers:`, req.headers);
+      
+      // Capture the original res.send to log responses
+      const originalSend = res.send;
+      res.send = function(body) {
+        console.log(`[DEBUG] Response status: ${res.statusCode}`);
+        console.log(`[DEBUG] Response headers:`, res.getHeaders());
+        console.log(`[DEBUG] Response body:`, typeof body === 'string' ? body.substring(0, 100) + '...' : '[Object]');
+        return originalSend.apply(res, arguments);
+      };
+    }
+    next();
+  });
+
+  // Set up CORS for API requests - using explicit CORS middleware
+  app.use('/api', cors({
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
+  }));
+  
+  // Middleware to set JSON content type for API responses
+  app.use('/api', (req, res, next) => {
+    res.setHeader('Content-Type', 'application/json');
+    next();
+  });
+  
+  // Set up authentication routes
+  setupAuth(app);
 
   // API Routes
   // ----------
@@ -101,7 +134,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : [Number(req.query.emotions)]
         : undefined;
       
-      const posts = await storage.getPosts(req.user?.user_id, emotionFilter);
+      // Always pass the user ID when authenticated to respect privacy settings
+      const userId = req.user?.user_id;
+      console.log(`GET /api/posts request from user ${userId || 'unknown'}`);
+      
+      const posts = await storage.getPosts(userId, emotionFilter);
       res.json(posts);
     } catch (err) {
       console.error("Failed to get posts:", err);
@@ -140,6 +177,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         friend_group_ids: parsedFriendGroupIds
       });
       
+      // Update the user's lastEmotions if the post is visible to everyone or friends
+      // This ensures that lastEmotions respects post privacy settings
+      if (audience === 'everyone' || audience === 'friends') {
+        await storage.updateUserLastEmotions(req.user!.user_id, parsedEmotionIds);
+      }
+      
       // Handle file upload if present using Supabase storage
       if (req.file) {
         try {
@@ -176,9 +219,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Special case for the PUT /api/posts/:postId endpoint
+  app.put("/api/posts/:postId", isAuthenticated, async (req, res) => {
+    try {
+      console.log(`[EDIT POST] Request to edit post ${req.params.postId}`);
+      console.log(`[EDIT POST] Request body:`, req.body);
+      
+      if (!req.user) {
+        console.log(`[EDIT POST] User not authenticated`);
+        return res.status(401).json({ message: 'Authentication required' });
+      }
+      
+      const { postId } = req.params;
+      const userId = req.user.user_id;
+      
+      // Ensure the postId is a valid string
+      if (!postId || typeof postId !== 'string') {
+        console.log(`[EDIT POST] Invalid post ID: ${postId}`);
+        return res.status(400).json({ message: 'Invalid post ID' });
+      }
+      
+      // Validate required fields
+      const { content, emotion_ids, audience, friend_group_ids } = req.body;
+      
+      if (!emotion_ids || !Array.isArray(emotion_ids) || emotion_ids.length === 0) {
+        console.log(`[EDIT POST] Missing or invalid emotion_ids:`, emotion_ids);
+        return res.status(400).json({ message: 'At least one emotion is required' });
+      }
+      
+      if (!audience || typeof audience !== 'string') {
+        console.log(`[EDIT POST] Invalid audience:`, audience);
+        return res.status(400).json({ message: 'Valid audience is required' });
+      }
+      
+      // Verify that if audience is friend_group, then friend_group_ids is provided
+      if (audience === 'friend_group') {
+        if (!friend_group_ids || !Array.isArray(friend_group_ids) || friend_group_ids.length === 0) {
+          console.log(`[EDIT POST] Missing friend_group_ids for friend_group audience`);
+          return res.status(400).json({ message: 'Friend group IDs must be provided for friend_group audience' });
+        }
+      }
+      
+      try {
+        // Call storage to update the post
+        const updateData = {
+          content,
+          emotion_ids,
+          audience,
+          friend_group_ids
+        };
+        
+        console.log(`[EDIT POST] Calling storage.updatePost with:`, { postId, userId, updateData });
+        const updatedPost = await storage.updatePost(postId, userId, updateData);
+        console.log(`[EDIT POST] Post updated successfully:`, updatedPost);
+        
+        // Force application/json content type
+        res.setHeader('Content-Type', 'application/json');
+        
+        // Return the updated post
+        return res.json(updatedPost || { success: true, post_id: postId });
+      } catch (storageError: any) {
+        // Handle specific error types from storage
+        console.error(`[EDIT POST] Storage error:`, storageError);
+        
+        if (storageError.message === 'Unauthorized') {
+          return res.status(403).json({ message: 'You do not have permission to edit this post' });
+        }
+        
+        if (storageError.message === 'Post not found') {
+          return res.status(404).json({ message: 'Post not found' });
+        }
+        
+        // Generic database error
+        return res.status(500).json({ 
+          message: 'Failed to update post', 
+          error: storageError.message || 'Database error'
+        });
+      }
+    } catch (err: any) {
+      console.error(`[EDIT POST] Unexpected error:`, err);
+      // Force application/json content type even for errors
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(500).json({ 
+        message: 'An unexpected error occurred', 
+        error: err.message || 'Unknown error'
+      });
+    }
+  });
+
   app.get("/api/posts/:postId/comments", isAuthenticated, async (req, res) => {
     try {
-      const comments = await storage.getPostComments(req.params.postId);
+      const { postId } = req.params;
+      const user = req.user as User;
+      
+      // Get the post to check audience, passing the current user ID
+      const post = await storage.getPostById(postId, user.user_id);
+      if (!post) {
+        return res.status(404).json({ error: 'Post not found' });
+      }
+      
+      const comments = await storage.getPostComments(postId);
       res.json(comments);
     } catch (err) {
       console.error("Failed to get comments:", err);
@@ -196,8 +336,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Comment body is required' });
       }
       
-      // Get the post to check author and notify them
-      const post = await storage.getPostById(postId);
+      // Get the post to check author and notify them, passing the current user ID
+      const post = await storage.getPostById(postId, user.user_id);
       if (!post) {
         return res.status(404).json({ error: 'Post not found' });
       }
@@ -243,7 +383,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/posts/:postId/reaction/:userId", isAuthenticated, async (req, res) => {
     try {
-      const reaction = await storage.getUserReactionToPost(req.params.postId, req.params.userId);
+      const { postId, userId } = req.params;
+      const requestingUser = req.user as User;
+      
+      // Get the post to check audience, passing the current user ID
+      const post = await storage.getPostById(postId, requestingUser.user_id);
+      if (!post) {
+        return res.status(404).json({ error: 'Post not found' });
+      }
+      
+      const reaction = await storage.getUserReactionToPost(postId, userId);
       res.json(reaction);
     } catch (err) {
       console.error("Failed to get reaction:", err);
@@ -261,8 +410,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Reaction type is required' });
       }
       
-      // Get the post to check author and notify them
-      const post = await storage.getPostById(postId);
+      // Get the post to check author and notify them, passing the current user ID
+      const post = await storage.getPostById(postId, user.user_id);
       if (!post) {
         return res.status(404).json({ error: 'Post not found' });
       }
@@ -507,16 +656,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // NEW: Get members of a friend group
   app.get("/api/friend-groups/:groupId/members", isAuthenticated, async (req, res) => {
     try {
+      console.log(`[API] Getting members for circle: ${req.params.groupId}, User: ${req.user!.user_id}`);
+      
       // Verify user has access to this friend group
       const canAccess = await storage.canAccessFriendGroup(req.params.groupId, req.user!.user_id);
       if (!canAccess) {
+        console.log(`[API] Access denied - user ${req.user!.user_id} does not have access to circle ${req.params.groupId}`);
         return res.status(403).json({ message: "You do not have permission to access this circle" });
       }
       
       const members = await storage.getFriendGroupMembers(req.params.groupId);
-      res.json(members);
-    } catch (err) {
-      console.error("Failed to get circle members:", err);
+      console.log(`[API] Found ${members.length} members for circle ${req.params.groupId}:`);
+      console.log(JSON.stringify(members, null, 2).substring(0, 1000)); // Log up to 1000 chars to avoid huge logs
+      
+      return res.json(members);
+    } catch (error) {
+      console.error("[API Error] Error getting circle members:", error);
       res.status(500).json({ message: "Failed to get circle members" });
     }
   });
@@ -524,19 +679,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // NEW: Add member to a friend group
   app.post("/api/friend-groups/:groupId/members", isAuthenticated, async (req, res) => {
     try {
+      console.log(`[API] Adding member to circle. GroupId: ${req.params.groupId}, UserId: ${req.user!.user_id}, MemberId: ${req.body.user_id}`);
+      
+      // Validate inputs
+      const groupId = req.params.groupId;
+      const memberUserId = req.body.user_id;
+      
+      if (!groupId || typeof groupId !== 'string') {
+        console.log(`[API] Invalid group ID: ${groupId}`);
+        return res.status(400).json({ message: "Invalid circle ID" });
+      }
+      
+      if (!memberUserId || typeof memberUserId !== 'string') {
+        console.log(`[API] Invalid member user ID: ${memberUserId}`);
+        return res.status(400).json({ message: "Invalid user ID" });
+      }
+      
+      // Check if the user being added exists
+      const userToAdd = await storage.getUserById(memberUserId);
+      if (!userToAdd) {
+        console.log(`[API] User to add not found: ${memberUserId}`);
+        return res.status(404).json({ message: "User not found" });
+      }
+      
       // Verify user is the owner of this friend group
-      const isOwner = await storage.isFriendGroupOwner(req.params.groupId, req.user!.user_id);
+      const isOwner = await storage.isFriendGroupOwner(groupId, req.user!.user_id);
+      console.log(`[API] Is user the circle owner? ${isOwner}`);
+      
       if (!isOwner) {
+        console.log(`[API] Permission denied - user ${req.user!.user_id} is not the owner of circle ${groupId}`);
         return res.status(403).json({ message: "Only the circle owner can add members" });
       }
       
       // Verify the user to be added is a connection
-      const isConnection = await storage.areUsersConnected(req.user!.user_id, req.body.user_id);
+      const isConnection = await storage.areUsersConnected(req.user!.user_id, memberUserId);
+      console.log(`[API] Are users connected? ${isConnection}`);
+      
       if (!isConnection) {
+        console.log(`[API] Cannot add user - ${req.user!.user_id} and ${memberUserId} are not connected`);
         return res.status(400).json({ message: "You can only add connections to your circles" });
       }
       
-      await storage.addFriendGroupMember(req.params.groupId, req.body.user_id);
+      await storage.addFriendGroupMember(groupId, memberUserId);
+      console.log(`[API] Successfully added member ${memberUserId} to circle ${groupId}`);
+      
       res.status(200).json({ success: true });
     } catch (err) {
       console.error("Failed to add circle member:", err);
@@ -831,8 +1017,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.params.userId;
       const targetUserId = userId === "me" ? req.user!.user_id : userId;
+      const currentUserId = req.user!.user_id;
       
-      const posts = await storage.getPostsByUser(targetUserId);
+      // Pass the current user's ID to respect privacy settings
+      const posts = await storage.getPostsByUser(targetUserId, currentUserId);
       
       // Enhance posts with author data
       const enhancedPosts = await Promise.all(posts.map(async (post) => {
@@ -980,26 +1168,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get post media
-  app.get("/api/posts/:postId/media", async (req, res) => {
+  app.get("/api/posts/:postId/media", isAuthenticated, async (req, res) => {
     try {
       const { postId } = req.params;
+      const userId = req.user!.user_id;
+      
+      // First check if the user can access this post
+      const post = await storage.getPostById(postId, userId);
+      if (!post) {
+        return res.status(404).json({ error: 'Post not found or you do not have permission to access it' });
+      }
+      
       const media = await storage.getPostMedia(postId);
       res.json(media);
     } catch (err) {
       console.error("Failed to get post media:", err);
       res.status(500).json({ message: "Failed to get post media" });
-    }
-  });
-
-  // Delete media
-  app.delete("/api/media/:mediaId", isAuthenticated, async (req, res) => {
-    try {
-      const { mediaId } = req.params;
-      await storage.deleteMedia(mediaId);
-      res.status(204).send();
-    } catch (err) {
-      console.error("Failed to delete media:", err);
-      res.status(500).json({ message: "Failed to delete media" });
     }
   });
 
@@ -1018,27 +1202,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.user_id;
       console.log(`User ${userId} attempting to delete post ${postId}`);
       
-      // Get the post first to check if it exists and if user is the author
-      const post = await storage.getPostById(postId);
-      
-      if (!post) {
-        console.log(`Post ${postId} not found during deletion attempt`);
-        return res.status(404).json({ message: "Post not found" });
-      }
-      
-      if (post.author_user_id !== userId) {
-        console.log(`Permission denied: User ${userId} tried to delete post ${postId} owned by ${post.author_user_id}`);
-        return res.status(403).json({ message: "You can only delete your own posts" });
-      }
-      
-      // If validation passes, delete the post
-      await db.delete(posts)
-        .where(eq(posts.post_id, postId));
+      // Use storage.deletePost which has proper privacy checks
+      await storage.deletePost(postId, userId);
       
       console.log(`Successfully deleted post ${postId}`);
       return res.status(204).send();
     } catch (err) {
       console.error(`Error deleting post ${postId}:`, err);
+      
+      // Handle specific errors
+      if (err instanceof Error) {
+        if (err.message === "Post not found") {
+          return res.status(404).json({ message: "Post not found" });
+        } else if (err.message === "You can only delete your own posts") {
+          return res.status(403).json({ message: "You can only delete your own posts" });
+        }
+      }
+      
       return res.status(500).json({ message: "Failed to delete post", error: String(err) });
     }
   });
@@ -1058,22 +1238,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.user_id;
       console.log(`User ${userId} attempting to delete post ${postId} via POST`);
       
-      // Get the post to verify ownership
-      const post = await storage.getPostById(postId);
-      
-      if (!post) {
-        console.log(`Post ${postId} not found during deletion attempt`);
-        return res.status(404).json({ message: "Post not found" });
-      }
-      
-      if (post.author_user_id !== userId) {
-        console.log(`Permission denied: User ${userId} tried to delete post ${postId} owned by ${post.author_user_id}`);
-        return res.status(403).json({ message: "You can only delete your own posts" });
-      }
-      
-      // Delete directly from the database
-      await db.delete(posts)
-        .where(eq(posts.post_id, postId));
+      // Use storage.deletePost which has proper privacy checks
+      await storage.deletePost(postId, userId);
       
       console.log(`Successfully deleted post ${postId} via POST endpoint`);
       
@@ -1084,6 +1250,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (err) {
       console.error(`Error deleting post ${postId}:`, err);
+      
+      // Handle specific errors
+      if (err instanceof Error) {
+        if (err.message === "Post not found") {
+          return res.status(404).json({ message: "Post not found" });
+        } else if (err.message === "You can only delete your own posts") {
+          return res.status(403).json({ message: "You can only delete your own posts" });
+        }
+      }
+      
       return res.status(500).json({ message: "Failed to delete post", error: String(err) });
     }
   });

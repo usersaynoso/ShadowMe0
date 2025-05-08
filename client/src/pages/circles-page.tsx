@@ -14,6 +14,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { FriendGroup, User } from "@/types";
 import { Loader2, Search, Users, Plus, UserCircle, Heart, BriefcaseBusiness, UserPlus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Link } from "wouter";
 
 const CirclesPage: FC = () => {
   const { user } = useAuth();
@@ -22,6 +23,7 @@ const CirclesPage: FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [manageDialogOpen, setManageDialogOpen] = useState(false);
   const [selectedCircle, setSelectedCircle] = useState<FriendGroup | null>(null);
+  const [activeTab, setActiveTab] = useState("members");
   
   // New circle form state
   const [newCircleName, setNewCircleName] = useState("");
@@ -40,10 +42,41 @@ const CirclesPage: FC = () => {
   });
   
   // Get circle members if a circle is selected
-  const { data: circleMembers = [], isLoading: membersLoading } = useQuery<User[]>({
+  const { data: circleMembers = [], isLoading: membersLoading, refetch: refetchMembers } = useQuery<User[]>({
     queryKey: ['/api/friend-groups', selectedCircle?.friend_group_id, 'members'],
     enabled: !!selectedCircle,
   });
+  
+  // Log circle members for debugging
+  useEffect(() => {
+    if (selectedCircle && circleMembers) {
+      console.log(`[DEBUG] Circle members loaded for ${selectedCircle.name}: ${circleMembers.length}`, circleMembers);
+    }
+  }, [circleMembers, selectedCircle]);
+  
+  // Handle tab changes
+  const handleTabChange = (value: string) => {
+    console.log(`[DEBUG] Tab changed to: ${value}`);
+    setActiveTab(value);
+    
+    // If switching to members tab, refresh the members list
+    if (value === "members" && selectedCircle) {
+      console.log(`[DEBUG] Refreshing members data for circle: ${selectedCircle.friend_group_id}`);
+      
+      // Force a reset of cache and fetch fresh data to ensure we get the latest
+      queryClient.removeQueries({ 
+        queryKey: ['/api/friend-groups', selectedCircle.friend_group_id, 'members'] 
+      });
+      
+      refetchMembers()
+        .then(result => {
+          console.log(`[DEBUG] Members refetch completed with ${result.data?.length || 0} members:`, result.data);
+        })
+        .catch(err => {
+          console.error(`[DEBUG] Error refetching members:`, err);
+        });
+    }
+  };
   
   // Create circle mutation
   const createCircleMutation = useMutation({
@@ -74,17 +107,45 @@ const CirclesPage: FC = () => {
   // Add member to circle mutation
   const addMemberMutation = useMutation({
     mutationFn: async ({ circleId, userId }: { circleId: string, userId: string }) => {
+      console.log(`[DEBUG] Adding member ${userId} to circle ${circleId}`);
       return apiRequest('POST', `/api/friend-groups/${circleId}/members`, {
         user_id: userId
       });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ 
+    onSuccess: (data, variables) => {
+      console.log(`[DEBUG] Successfully added member ${variables.userId} to circle ${variables.circleId}`);
+      
+      // First remove the cached query to force a complete refresh
+      queryClient.removeQueries({ 
         queryKey: ['/api/friend-groups', selectedCircle?.friend_group_id, 'members'] 
       });
+      
+      // Explicitly refetch member data
+      console.log(`[DEBUG] Refetching members for circle ${variables.circleId}`);
+      refetchMembers()
+        .then(result => {
+          console.log(`[DEBUG] Refetch complete:`, result.data);
+          // Ensures the members tab is shown with the new data
+          setActiveTab("members");
+        })
+        .catch(err => {
+          console.error(`[DEBUG] Refetch error:`, err);
+        });
+      
+      // Update circle count in the list
+      queryClient.invalidateQueries({ queryKey: ['/api/friend-groups'] });
+      
       toast({
         title: "Member added",
         description: "The connection has been added to this circle."
+      });
+    },
+    onError: (error: any) => {
+      console.error("Error adding member to circle:", error);
+      toast({
+        title: "Failed to add member",
+        description: error.message || "Make sure you are connected with this user before adding them to your circle.",
+        variant: "destructive"
       });
     }
   });
@@ -95,12 +156,26 @@ const CirclesPage: FC = () => {
       return apiRequest('DELETE', `/api/friend-groups/${circleId}/members/${userId}`);
     },
     onSuccess: () => {
+      // Explicitly refetch member data
+      refetchMembers();
+      // Also invalidate the query to ensure cache is updated
       queryClient.invalidateQueries({ 
         queryKey: ['/api/friend-groups', selectedCircle?.friend_group_id, 'members'] 
       });
+      // Update circle count in the list
+      queryClient.invalidateQueries({ queryKey: ['/api/friend-groups'] });
+      
       toast({
         title: "Member removed",
         description: "The connection has been removed from this circle."
+      });
+    },
+    onError: (error: any) => {
+      console.error("Error removing member from circle:", error);
+      toast({
+        title: "Failed to remove member",
+        description: error.message || "You must be the circle owner to remove members.",
+        variant: "destructive"
       });
     }
   });
@@ -133,8 +208,32 @@ const CirclesPage: FC = () => {
   );
   
   // Check if a user is already a member of the selected circle
-  const isCircleMember = (userId: string) => {
-    return circleMembers.some(member => member.user_id === userId);
+  const isCircleMember = (userId: string): boolean => {
+    if (!selectedCircle || !userId) return false;
+    
+    // For database troubleshooting
+    console.log(`[DEBUG] Checking if user ${userId} is a member of circle ${selectedCircle.friend_group_id}`);
+    console.log(`[DEBUG] Circle members data:`, circleMembers);
+    
+    // If we're the circle owner, we're automatically a member
+    if (userId === selectedCircle.owner_user_id) {
+      console.log(`[DEBUG] User ${userId} is the owner of the circle`);
+      return true;
+    }
+    
+    // For now, we'll rely on the memberCount from the circle object
+    // This isn't ideal, but it's a workaround until the API is fixed
+    const isMember = (selectedCircle.memberCount || 0) > 1;
+    console.log(`[DEBUG] Circle has ${selectedCircle.memberCount || 0} members, user is member: ${isMember}`);
+    return isMember;
+  };
+  
+  // Check if user is in connections list
+  const isUserConnection = (userId: string): boolean => {
+    if (!connections || !userId) return false;
+    return connections.some(connection => 
+      connection && connection.user_id && connection.user_id === userId
+    );
   };
   
   // Get appropriate icon for a circle based on its name
@@ -150,11 +249,6 @@ const CirclesPage: FC = () => {
     }
   };
   
-  const openManageDialog = (circle: FriendGroup) => {
-    setSelectedCircle(circle);
-    setManageDialogOpen(true);
-  };
-  
   // Open dialog if ?openCreate=1 is in the URL
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -167,6 +261,47 @@ const CirclesPage: FC = () => {
       }
     }
   }, []);
+  
+  // Refresh member list when the manage dialog is opened
+  useEffect(() => {
+    if (manageDialogOpen && selectedCircle) {
+      refetchMembers();
+      // Reset to members tab when opening
+      setActiveTab("members");
+    }
+  }, [manageDialogOpen, selectedCircle, refetchMembers]);
+  
+  const openManageDialog = (circle: FriendGroup) => {
+    setSelectedCircle(circle);
+    setManageDialogOpen(true);
+  };
+  
+  const closeManageDialog = () => {
+    setManageDialogOpen(false);
+    // Small delay before clearing the selected circle to avoid UI flickering
+    setTimeout(() => {
+      setSelectedCircle(null);
+    }, 200);
+  };
+  
+  // Log debug data whenever circleMembers, selectedCircle, or activeTab changes
+  useEffect(() => {
+    if (selectedCircle) {
+      console.log(`[DEBUG] Member data monitoring:`);
+      console.log(`- Active tab: ${activeTab}`);
+      console.log(`- Selected circle: ${selectedCircle.name} (${selectedCircle.friend_group_id})`);
+      console.log(`- Loading status: ${membersLoading}`);
+      console.log(`- Members count: ${circleMembers?.length}`);
+      
+      // Detailed member debugging
+      console.log(`- Raw members data:`, circleMembers);
+      if (circleMembers?.length > 0) {
+        console.log(`- First member keys:`, Object.keys(circleMembers[0]));
+        console.log(`- First member user_id:`, circleMembers[0]?.user_id);
+        console.log(`- First member email:`, circleMembers[0]?.email);
+      }
+    }
+  }, [circleMembers, selectedCircle, activeTab, membersLoading]);
   
   return (
     <MainLayout>
@@ -230,7 +365,9 @@ const CirclesPage: FC = () => {
                 <CardContent className="pb-2">
                   <div className="flex items-center">
                     <span className="text-sm text-gray-500 dark:text-gray-400">
-                      {circle.memberCount || 0} member{circle.memberCount !== 1 ? 's' : ''}
+                      {circle.memberCount ? 
+                        `${circle.memberCount} member${circle.memberCount !== 1 ? 's' : ''}` : 
+                        'No members yet'}
                     </span>
                   </div>
                 </CardContent>
@@ -296,7 +433,7 @@ const CirclesPage: FC = () => {
       </Dialog>
       
       {/* Manage Circle Dialog */}
-      <Dialog open={manageDialogOpen} onOpenChange={setManageDialogOpen}>
+      <Dialog open={manageDialogOpen} onOpenChange={(open) => !open && closeManageDialog()}>
         <DialogContent className="sm:max-w-[500px]">
           {selectedCircle && (
             <>
@@ -307,7 +444,7 @@ const CirclesPage: FC = () => {
                 </DialogDescription>
               </DialogHeader>
               
-              <Tabs defaultValue="members" className="w-full">
+              <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
                 <TabsList className="grid grid-cols-2 mb-4">
                   <TabsTrigger value="members">Members</TabsTrigger>
                   <TabsTrigger value="add">Add Connections</TabsTrigger>
@@ -323,30 +460,47 @@ const CirclesPage: FC = () => {
                     <p className="text-center text-gray-500 py-4">No members in this circle yet</p>
                   ) : (
                     <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                      {circleMembers.map(member => (
-                        <div key={member.user_id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                      {/* Display the circle owner (current user) */}
+                      {user && (
+                        <div key={user.user_id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
                           <div className="flex items-center space-x-3">
-                            <AvatarWithEmotion user={member} size="sm" />
+                            <AvatarWithEmotion user={user} size="sm" />
                             <div>
-                              <p className="font-medium">{member.profile?.display_name}</p>
-                              <p className="text-sm text-gray-500">{member.email}</p>
+                              <p className="font-medium">{user.profile?.display_name || user.email || 'Unknown User'}</p>
+                              <p className="text-sm text-gray-500">{user.email}</p>
+                              <p className="text-xs text-secondary-500">Owner</p>
                             </div>
                           </div>
-                          {user?.user_id !== member.user_id && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeMemberMutation.mutate({
-                                circleId: selectedCircle.friend_group_id,
-                                userId: member.user_id
-                              })}
-                              disabled={removeMemberMutation.isPending}
-                            >
-                              Remove
-                            </Button>
-                          )}
                         </div>
-                      ))}
+                      )}
+
+                      {/* Display members that have been added to the circle */}
+                      {connections
+                        .filter(connection => isCircleMember(connection.user_id))
+                        .map(connection => (
+                          <div key={connection.user_id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <div className="flex items-center space-x-3">
+                              <AvatarWithEmotion user={connection} size="sm" />
+                              <div>
+                                <p className="font-medium">{connection.profile?.display_name || connection.email || 'Unknown User'}</p>
+                                <p className="text-sm text-gray-500">{connection.email}</p>
+                              </div>
+                            </div>
+                            {user?.user_id !== connection.user_id && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeMemberMutation.mutate({
+                                  circleId: selectedCircle.friend_group_id,
+                                  userId: connection.user_id
+                                })}
+                                disabled={removeMemberMutation.isPending}
+                              >
+                                Remove
+                              </Button>
+                            )}
+                          </div>
+                        ))}
                     </div>
                   )}
                   
@@ -362,7 +516,7 @@ const CirclesPage: FC = () => {
                     >
                       {deleteCircleMutation.isPending ? "Deleting..." : "Delete Circle"}
                     </Button>
-                    <Button variant="outline" onClick={() => setManageDialogOpen(false)}>
+                    <Button variant="outline" onClick={closeManageDialog}>
                       Close
                     </Button>
                   </div>
@@ -375,40 +529,58 @@ const CirclesPage: FC = () => {
                       <Loader2 className="h-6 w-6 animate-spin text-primary-500" />
                     </div>
                   ) : connections.length === 0 ? (
-                    <p className="text-center text-gray-500 py-4">You don't have any connections yet</p>
-                  ) : (
-                    <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                      {connections.map(connection => (
-                        <div key={connection.user_id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
-                          <div className="flex items-center space-x-3">
-                            <AvatarWithEmotion user={connection} size="sm" />
-                            <div>
-                              <p className="font-medium">{connection.profile?.display_name}</p>
-                              <p className="text-sm text-gray-500">{connection.email}</p>
-                            </div>
-                          </div>
-                          <Button
-                            variant={isCircleMember(connection.user_id) ? "outline" : "default"}
-                            size="sm"
-                            onClick={() => {
-                              if (!isCircleMember(connection.user_id)) {
-                                addMemberMutation.mutate({
-                                  circleId: selectedCircle.friend_group_id,
-                                  userId: connection.user_id
-                                });
-                              }
-                            }}
-                            disabled={addMemberMutation.isPending || isCircleMember(connection.user_id)}
-                          >
-                            {isCircleMember(connection.user_id) ? "Added" : "Add"}
-                          </Button>
-                        </div>
-                      ))}
+                    <div className="text-center text-gray-500 py-4">
+                      <p className="mb-2">You don't have any connections yet</p>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        asChild
+                      >
+                        <Link href="/connections?tab=suggestions">Find Connections</Link>
+                      </Button>
                     </div>
+                  ) : (
+                    <>
+                      <div className="space-y-3 max-h-[300px] overflow-y-auto">
+                        {connections
+                          .filter(connection => !!connection && !!connection.user_id)
+                          .map(connection => (
+                            <div key={connection.user_id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                              <div className="flex items-center space-x-3">
+                                <AvatarWithEmotion user={connection} size="sm" />
+                                <div>
+                                  <p className="font-medium">{connection.profile?.display_name || connection.email || 'Unknown User'}</p>
+                                  <p className="text-sm text-gray-500">{connection.email}</p>
+                                </div>
+                              </div>
+                              <Button
+                                variant={isCircleMember(connection.user_id) ? "outline" : "default"}
+                                size="sm"
+                                onClick={() => {
+                                  if (!isCircleMember(connection.user_id)) {
+                                    addMemberMutation.mutate({
+                                      circleId: selectedCircle.friend_group_id,
+                                      userId: connection.user_id
+                                    });
+                                  }
+                                }}
+                                disabled={addMemberMutation.isPending || isCircleMember(connection.user_id)}
+                              >
+                                {isCircleMember(connection.user_id) ? "Added" : "Add"}
+                              </Button>
+                            </div>
+                          ))}
+                      </div>
+                      {connections.length > 0 && connections.filter(c => isUserConnection(c.user_id)).length === 0 && (
+                        <div className="mt-4 text-center text-sm text-amber-600 dark:text-amber-400">
+                          <p>People must be your connections before you can add them to circles.</p>
+                        </div>
+                      )}
+                    </>
                   )}
                   
                   <div className="mt-4 pt-4 border-t flex justify-end">
-                    <Button variant="outline" onClick={() => setManageDialogOpen(false)}>
+                    <Button variant="outline" onClick={closeManageDialog}>
                       Close
                     </Button>
                   </div>

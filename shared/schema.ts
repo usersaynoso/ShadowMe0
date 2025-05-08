@@ -242,6 +242,15 @@ export const notifications = pgTable('notifications', {
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow()
 });
 
+// Users Metadata (for additional user data storage)
+export const users_metadata = pgTable('users_metadata', {
+  metadata_id: uuid('metadata_id').primaryKey().defaultRandom(),
+  user_id: uuid('user_id').references(() => users.user_id, { onDelete: 'cascade' }).unique(),
+  last_emotions: jsonb('last_emotions').$type<number[]>(),
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow()
+});
+
 // Schema Validation with Zod
 export const insertUserSchema = createInsertSchema(users).omit({
   user_id: true,
