@@ -171,7 +171,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
       </CardHeader>
       
       <CardContent className="px-4 pb-3">
-        <p className="text-sm mb-3">{post.content}</p>
+        <p className="text-sm mb-3 break-words break-all whitespace-pre-line">{post.content}</p>
         
         {post.media && post.media.length > 0 && (
           <MediaGallery media={post.media} className="mt-3" />
@@ -230,7 +230,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
                       {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
                     </span>
                   </div>
-                  <p className="text-xs mt-1">{comment.body}</p>
+                  <p className="text-xs mt-1 break-words break-all whitespace-pre-line">{comment.body}</p>
                 </div>
                 
                 <div className="flex mt-1 ml-1 space-x-2 text-xs text-gray-500">
