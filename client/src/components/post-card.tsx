@@ -15,7 +15,9 @@ import {
   MoreHorizontal,
   Globe,
   Users,
-  Lock
+  Lock,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { Post, Comment, User, Emotion } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
@@ -31,16 +33,18 @@ interface PostCardProps {
 export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
   const { user } = useAuth();
   const [commentText, setCommentText] = useState("");
+  const [showAllComments, setShowAllComments] = useState(false);
 
-  // Get comments for this post
+  // Get comments for this post - use full API URL path in the queryKey
   const { data: comments = [] } = useQuery<Comment[]>({
-    queryKey: ['/api/posts', post.post_id, 'comments'],
+    queryKey: [`/api/posts/${post.post_id}/comments`],
+    enabled: !!post.post_id, // Only run query if post_id exists
   });
 
   // Check if current user has liked this post
   const { data: userReaction } = useQuery({
-    queryKey: ['/api/posts', post.post_id, 'reaction', user?.user_id],
-    enabled: !!user?.user_id,
+    queryKey: [`/api/posts/${post.post_id}/reaction/${user?.user_id}`],
+    enabled: !!user?.user_id && !!post.post_id,
   });
 
   // Like/unlike post mutation
@@ -55,8 +59,12 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/posts', post.post_id, 'reaction', user?.user_id] });
+      // Invalidate the user reaction query
+      queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}/reaction/${user?.user_id}`] });
+      // Invalidate post list to update reaction counts
       queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
+      // Also invalidate any queries for this specific post
+      queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}`] });
     }
   });
 
@@ -66,8 +74,11 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
       return apiRequest('POST', `/api/posts/${post.post_id}/comments`, { body });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/posts', post.post_id, 'comments'] });
+      // Invalidate comments for this post
+      queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}/comments`] });
       setCommentText("");
+      // Show all comments after adding a new one
+      setShowAllComments(true);
     }
   });
 
@@ -102,6 +113,14 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
       default: return 'Everyone';
     }
   };
+
+  // Sort comments with most recent first
+  const sortedComments = [...comments].sort((a, b) => 
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
+  // Get comments to display based on showAllComments state
+  const commentsToDisplay = showAllComments ? sortedComments : sortedComments.slice(0, 1);
 
   return (
     <Card className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
@@ -192,7 +211,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
       
       {comments.length > 0 && (
         <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
-          {comments.slice(0, 2).map(comment => (
+          {commentsToDisplay.map(comment => (
             <div key={comment.comment_id} className="flex items-start space-x-3 mb-3">
               <AvatarWithRing 
                 user={comment.author}
@@ -217,6 +236,27 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions }) => {
               </div>
             </div>
           ))}
+          
+          {comments.length > 1 && (
+            <Button
+              variant="ghost" 
+              size="sm"
+              className="w-full mt-1 text-xs font-medium text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 flex items-center justify-center"
+              onClick={() => setShowAllComments(!showAllComments)}
+            >
+              {showAllComments ? (
+                <>
+                  <ChevronUp className="mr-1 h-4 w-4" />
+                  Show less
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="mr-1 h-4 w-4" />
+                  View all {comments.length} comments
+                </>
+              )}
+            </Button>
+          )}
         </div>
       )}
       
