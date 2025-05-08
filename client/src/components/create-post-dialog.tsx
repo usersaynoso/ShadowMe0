@@ -61,48 +61,19 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children, postToEd
   // Create post mutation
   const createPostMutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const response = await apiRequest('POST', '/api/posts', formData);
-      // Convert to JSON to get the post data
-      try {
-        return await response.json();
-      } catch (e) {
-        console.error('Error parsing response as JSON:', e);
-        return { success: true };
-      }
+      return apiRequest('POST', '/api/posts', formData);
     },
-    onSuccess: (newPost) => {
+    onSuccess: () => {
       // More specific query invalidations to ensure feed updates
-      queryClient.invalidateQueries({ 
-        queryKey: ['/api/posts'],
-        exact: false
-      });
-      queryClient.invalidateQueries({ 
-        queryKey: [`/api/users/${user?.user_id}/posts`],
-        exact: false
-      });
-      
-      // Explicitly force a refetch for active queries
-      queryClient.refetchQueries({
-        queryKey: ['/api/posts'],
-        type: 'active'
-      });
+      queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
+      queryClient.invalidateQueries({ queryKey: [`/api/users/${user?.user_id}/posts`] });
       
       setShowSuccess(true);
-      
-      // Call the onEditSuccess callback if provided
-      if (onEditSuccess && newPost && newPost.post_id) {
-        try {
-          onEditSuccess(newPost as Post); 
-        } catch (e) {
-          console.error('Error in onEditSuccess callback:', e);
-        }
-      }
       
       // Longer delay to ensure queries have time to refetch before closing
       setTimeout(() => {
         setShowSuccess(false);
         setOpen(false);
-        if (onOpenChange) onOpenChange(false);
         resetForm();
       }, 2500); // Increased from 1800ms to 2500ms
     }
@@ -192,94 +163,47 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children, postToEd
     onSuccess: (updatedPost) => {
       console.log('Edit post successful:', updatedPost);
       
-      // More aggressive query invalidation with explicit refetch
-      // Force immediate refetch of all post-related queries 
+      // More aggressive query invalidation with forced refetch
+      // Invalidate all post-related queries to ensure UI updates
       queryClient.invalidateQueries({ 
         queryKey: ['/api/posts'],
-        refetchType: 'all',
-        exact: false          // Include all queries that start with this key
+        refetchType: 'all' 
       });
       
-      // Invalidate specific user posts queries
+      // Invalidate user-specific post queries
       queryClient.invalidateQueries({ 
         queryKey: [`/api/users/${user?.user_id}/posts`],
         refetchType: 'all'
       });
       
-      // More direct approach: try to update the cache directly for immediate UI update
-      try {
-        // Update posts in global feed
-        const postsData = queryClient.getQueryData<Post[]>(['/api/posts']);
-        if (postsData && updatedPost) {
-          const updatedPosts = postsData.map(post => {
-            if (post.post_id === postToEdit?.post_id) {
-              // Create a complete merged object to ensure all properties are preserved
-              const mergedPost = {
-                ...post,                   // Start with all original post data
-                ...updatedPost,            // Overlay with new data from update
-                content: content,          // Explicitly set edited fields to ensure they're updated
-                emotion_ids: selectedEmotions,
-                audience: audience,
-                // Handle audience details update
-                audienceDetails: audience === 'friend_group' 
-                  ? { ids: selectedCircles, type: 'friend_group' } 
-                  : post.audienceDetails
-              };
-              return mergedPost;
-            }
-            return post;
-          });
-          
-          // Set the updated data directly in the cache
-          queryClient.setQueryData(['/api/posts'], updatedPosts);
-        }
-        
-        // Also update user-specific posts if that query exists
-        const userPostsData = queryClient.getQueryData<Post[]>([`/api/users/${user?.user_id}/posts`]);
-        if (userPostsData && updatedPost) {
-          const updatedUserPosts = userPostsData.map(post => {
-            if (post.post_id === postToEdit?.post_id) {
-              // Create a complete merged object to ensure all properties are preserved
-              const mergedPost = {
-                ...post,                   // Start with all original post data
-                ...updatedPost,            // Overlay with new data from update
-                content: content,          // Explicitly set edited fields to ensure they're updated
-                emotion_ids: selectedEmotions,
-                audience: audience,
-                // Handle audience details update
-                audienceDetails: audience === 'friend_group' 
-                  ? { ids: selectedCircles, type: 'friend_group' } 
-                  : post.audienceDetails
-              };
-              return mergedPost;
-            }
-            return post;
-          });
-          queryClient.setQueryData([`/api/users/${user?.user_id}/posts`], updatedUserPosts);
-        }
-      } catch (e) {
-        console.error('Error updating cache directly:', e);
-        // If updating cache fails, we rely on the invalidation above
-      }
-      
-      // Explicitly refetch active queries to ensure UI updates
-      // This happens regardless of whether the direct cache update succeeded
-      queryClient.refetchQueries({
-        queryKey: ['/api/posts'],
-        exact: false,
-        type: 'active'
+      // Invalidate any queries that might include posts
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const queryKey = Array.isArray(query.queryKey) ? query.queryKey[0] : query.queryKey;
+          return typeof queryKey === 'string' && queryKey.includes('posts');
+        },
+        refetchType: 'all'
       });
       
-      setShowSuccess(true);
-
-      // Call the onEditSuccess callback if provided
-      if (onEditSuccess && updatedPost) {
+      // Force UI refresh by directly updating queryClient cache if we can identify the post
+      if (updatedPost && updatedPost.post_id && postToEdit?.post_id) {
         try {
-          onEditSuccess(updatedPost);
+          // Try to optimistically update the post in cache
+          const postsData = queryClient.getQueryData<any[]>(['/api/posts']);
+          if (postsData) {
+            const updatedPosts = postsData.map(post => 
+              post.post_id === updatedPost.post_id ? updatedPost : post
+            );
+            queryClient.setQueryData(['/api/posts'], updatedPosts);
+          }
         } catch (e) {
-          console.error('Error in onEditSuccess callback:', e);
+          console.error('Error updating cache:', e);
+          // If updating cache fails, just invalidate the query
         }
       }
+      
+      setShowSuccess(true);
+      if (onEditSuccess && updatedPost) onEditSuccess(updatedPost);
       
       // Close dialog after success
       setTimeout(() => {
@@ -460,14 +384,11 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children, postToEd
 
   return (
     <Dialog open={dialogOpen} onOpenChange={handleDialogOpenChange}>
-      <DialogTrigger asChild>
-        {children || (
-          <Button className="rounded-full px-4 py-2 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 text-sm flex items-center hover:bg-primary-100 dark:hover:bg-primary-800/40">
-            <PenSquare className="mr-2 h-4 w-4" />
-            {postToEdit ? 'Edit Post' : 'Create Post'}
-          </Button>
-        )}
-      </DialogTrigger>
+      {children && (
+        <DialogTrigger asChild>
+          {children}
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-center">{postToEdit ? 'Edit Post' : 'Create Post'}</DialogTitle>

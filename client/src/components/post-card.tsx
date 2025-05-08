@@ -355,20 +355,15 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
         }}
         onEditSuccess={(updatedPost) => {
           console.log("Post successfully updated, refreshing data...");
-          // Invalidate queries to update the cache
           queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
           queryClient.invalidateQueries({ 
             queryKey: [`/api/users/${post.author.user_id}/posts`],
             exact: false
           });
-          
-          // Explicitly refetch to ensure UI updates
           queryClient.refetchQueries({
             queryKey: ['/api/posts'],
             type: 'active'
           });
-          
-          // Notify parent component if callback exists
           if (onPostUpdated) {
             onPostUpdated();
           }
