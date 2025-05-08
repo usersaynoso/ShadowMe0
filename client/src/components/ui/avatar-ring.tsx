@@ -9,6 +9,7 @@ interface AvatarRingProps {
   thickness?: number;
   blur?: number;
   rotation?: number;
+  outerGlow?: number;
 }
 
 export const AvatarRing: FC<AvatarRingProps> = ({ 
@@ -17,7 +18,8 @@ export const AvatarRing: FC<AvatarRingProps> = ({
   className,
   thickness = 10,
   blur = 30,
-  rotation = 120
+  rotation = 120,
+  outerGlow = 20
 }) => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const ringRef = useRef<HTMLDivElement>(null);
@@ -92,6 +94,7 @@ export const AvatarRing: FC<AvatarRingProps> = ({
         '--ring-thickness': `${thickness}px`,
         '--ring-blur': `${blur}px`,
         '--ring-rotation': `${rotation}s`,
+        '--ring-outer-glow': `${outerGlow}px`,
       } as React.CSSProperties}
     >
       {children}
@@ -99,10 +102,18 @@ export const AvatarRing: FC<AvatarRingProps> = ({
         ref={ringRef} 
         className="ring absolute pointer-events-none"
         style={{
-          inset: `calc(-1 * var(--ring-thickness))`,
+          inset: `calc(-1 * var(--ring-thickness) - var(--ring-outer-glow))`,
           borderRadius: "50%",
           background: "var(--gradient)",
-          mask: "radial-gradient(farthest-side, transparent calc(100% - var(--ring-thickness)), #000 0)",
+          mask: `
+            radial-gradient(
+              farthest-side, 
+              transparent calc(100% - var(--ring-thickness) - var(--ring-outer-glow) * 2), 
+              #000 calc(100% - var(--ring-thickness) - var(--ring-outer-glow)),
+              #000 calc(100% - var(--ring-outer-glow)),
+              transparent 100%
+            )
+          `,
           filter: "blur(var(--ring-blur)) brightness(1.2) saturate(1.4)",
           animation: "spin var(--ring-rotation) linear infinite"
         }}

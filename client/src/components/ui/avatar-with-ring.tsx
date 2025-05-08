@@ -73,9 +73,10 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
     <AvatarRing 
       emotions={emotions}
       className={cn("relative", className)}
-      // Adjust thickness, blur, and rotation based on size
+      // Adjust thickness, blur, rotation and outer glow based on size
       thickness={size === 'sm' ? 6 : size === 'md' ? 10 : 14}
       blur={size === 'sm' ? 20 : size === 'md' ? 30 : 40}
+      outerGlow={size === 'sm' ? 12 : size === 'md' ? 20 : 30}
       rotation={120}
     >
       <Avatar className={cn("border bg-white dark:bg-gray-800", dimensions[size].avatar)}>

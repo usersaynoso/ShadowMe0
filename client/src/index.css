@@ -129,18 +129,25 @@
   --ring-thickness: 10px;
   --ring-blur: 30px;
   --ring-rotation: 120s;
+  --ring-outer-glow: 20px;
   display: inline-block;
   position: relative;
 }
 
 .avatar-ring .ring {
   position: absolute;
-  inset: calc(-1 * var(--ring-thickness));
+  inset: calc(-1 * var(--ring-thickness) - var(--ring-outer-glow));
   border-radius: 50%;
   pointer-events: none;
   --gradient: transparent;
   background: var(--gradient);
-  mask: radial-gradient(farthest-side, transparent calc(100% - var(--ring-thickness)), #000 0);
+  mask: radial-gradient(
+    farthest-side, 
+    transparent calc(100% - var(--ring-thickness) - var(--ring-outer-glow) * 2), 
+    #000 calc(100% - var(--ring-thickness) - var(--ring-outer-glow)),
+    #000 calc(100% - var(--ring-outer-glow)),
+    transparent 100%
+  );
   filter: blur(var(--ring-blur)) brightness(1.2) saturate(1.4);
   animation: spin var(--ring-rotation) linear infinite;
 }
