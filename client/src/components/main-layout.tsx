@@ -23,26 +23,58 @@ export const MainLayout: FC<MainLayoutProps> = ({
       <Header />
       
       <main className="flex-1 container mx-auto px-4 pb-20 md:pb-10 pt-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Left Sidebar */}
-          {showLeftSidebar && !isMobile && (
-            <aside className="hidden md:block">
-              <LeftSidebar />
-            </aside>
-          )}
-          
-          {/* Main Content */}
-          <div className={`${showLeftSidebar && showRightSidebar ? 'md:col-span-2' : 'col-span-full'}`}>
-            {children}
-          </div>
-          
-          {/* Right Sidebar */}
-          {showRightSidebar && !isMobile && (
-            <aside className="hidden lg:block">
-              <RightSidebar />
-            </aside>
-          )}
-        </div>
+        {(() => {
+          // Desktop grid logic
+          if (showLeftSidebar && showRightSidebar && !isMobile) {
+            // Both sidebars
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <aside className="hidden md:block">
+                  <LeftSidebar />
+                </aside>
+                <div className="md:col-span-1 col-span-full">
+                  {children}
+                </div>
+                <aside className="hidden lg:block">
+                  <RightSidebar />
+                </aside>
+              </div>
+            );
+          } else if (showLeftSidebar && !showRightSidebar && !isMobile) {
+            // Only left sidebar
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <aside className="hidden md:block">
+                  <LeftSidebar />
+                </aside>
+                <div className="md:col-span-3 col-span-full">
+                  {children}
+                </div>
+              </div>
+            );
+          } else if (!showLeftSidebar && showRightSidebar && !isMobile) {
+            // Only right sidebar
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="md:col-span-3 col-span-full">
+                  {children}
+                </div>
+                <aside className="hidden lg:block">
+                  <RightSidebar />
+                </aside>
+              </div>
+            );
+          } else {
+            // No sidebars or mobile
+            return (
+              <div className="grid grid-cols-1 gap-6">
+                <div className="col-span-full">
+                  {children}
+                </div>
+              </div>
+            );
+          }
+        })()}
       </main>
       
       {isMobile && <MobileNavigation />}

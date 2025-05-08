@@ -8,7 +8,7 @@ import { EmotionSelector } from "@/components/ui/emotion-selector";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { ChevronDown, Globe, Image, PenSquare, Users, Lock, CalendarIcon, Clock, SmilePlus, Tag, X } from "lucide-react";
+import { ChevronDown, Globe, Image, PenSquare, Users, Lock, CalendarIcon, Clock, SmilePlus, Tag, X, CheckCircle } from "lucide-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,6 +32,8 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
   const [selectedCircles, setSelectedCircles] = useState<string[]>([]);
   const [media, setMedia] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   
   // Shadow session fields
   const [isShadowSession, setIsShadowSession] = useState(false);
@@ -58,8 +60,18 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
       return apiRequest('POST', '/api/posts', formData);
     },
     onSuccess: () => {
+      // More specific query invalidations to ensure feed updates
       queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
-      resetForm();
+      queryClient.invalidateQueries({ queryKey: [`/api/users/${user?.user_id}/posts`] });
+      
+      setShowSuccess(true);
+      
+      // Longer delay to ensure queries have time to refetch before closing
+      setTimeout(() => {
+        setShowSuccess(false);
+        setOpen(false);
+        resetForm();
+      }, 2500); // Increased from 1800ms to 2500ms
     }
   });
 
@@ -184,7 +196,7 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
   };
 
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {children || (
           <Button className="rounded-full px-4 py-2 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 text-sm flex items-center hover:bg-primary-100 dark:hover:bg-primary-800/40">
@@ -197,7 +209,13 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
         <DialogHeader>
           <DialogTitle className="text-center">Create Post</DialogTitle>
         </DialogHeader>
-        
+        {showSuccess ? (
+          <div className="flex flex-col items-center justify-center py-12 animate-fade-in-out">
+            <CheckCircle className="h-16 w-16 text-green-500 mb-4 animate-bounce-in" />
+            <h2 className="text-2xl font-bold text-green-600 mb-2">Post Submitted!</h2>
+            <p className="text-gray-600 dark:text-gray-300 text-center">Your post has been published and will appear in the feed shortly.</p>
+          </div>
+        ) : (
         <div className="space-y-4">
           <div className="flex items-center space-x-3">
             <AvatarWithRing 
@@ -461,6 +479,7 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children }) => {
             </Button>
           </div>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   );

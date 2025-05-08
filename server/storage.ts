@@ -1538,7 +1538,7 @@ export class DatabaseStorage implements IStorage {
       const timestamp = Date.now();
       const uniqueFileName = `avatar_${userId}_${timestamp}.${fileExt}`;
       
-      // Check if user-avatars bucket exists, if not we'll use post-media
+      // Use the user-avatars bucket that we've created and made public
       const bucketName = 'user-avatars';
       
       // Upload to Supabase Storage
@@ -1551,30 +1551,8 @@ export class DatabaseStorage implements IStorage {
         });
       
       if (error) {
-        console.error("Error uploading to user-avatars bucket, trying post-media instead:", error);
-        // Fallback to post-media bucket if user-avatars doesn't exist
-        const { data: fallbackData, error: fallbackError } = await supabase
-          .storage
-          .from('post-media')
-          .upload(uniqueFileName, fileData, {
-            contentType: this.getMimeType(fileExt || ''),
-            upsert: true
-          });
-        
-        if (fallbackError) {
-          throw fallbackError;
-        }
-        
-        // Generate a public URL for the uploaded file from post-media bucket
-        const { data: { publicUrl } } = supabase
-          .storage
-          .from('post-media')
-          .getPublicUrl(uniqueFileName);
-        
-        // Clean up the temporary file
-        fs.unlinkSync(filePath);
-        
-        return publicUrl;
+        console.error("Error uploading avatar to storage:", error);
+        throw error;
       }
 
       // Generate a public URL for the uploaded file

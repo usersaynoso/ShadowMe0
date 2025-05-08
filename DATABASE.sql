@@ -3163,6 +3163,7 @@ COPY public.friends (user_id, friend_id, status, created_at) FROM stdin;
 --
 
 COPY public.group_members (group_id, user_id, role, joined_at) FROM stdin;
+2e2166e6-7cab-4d12-baf0-48aa770610c0	c182f303-f6f2-41bd-9d0a-78097d627c5e	creator	2025-05-08 13:18:33.660113+00
 \.
 
 
@@ -3171,6 +3172,7 @@ COPY public.group_members (group_id, user_id, role, joined_at) FROM stdin;
 --
 
 COPY public.groups (group_id, creator_user_id, name, topic_tag, is_public, description, created_at) FROM stdin;
+2e2166e6-7cab-4d12-baf0-48aa770610c0	c182f303-f6f2-41bd-9d0a-78097d627c5e	test	creativity	t		2025-05-08 13:18:32.542039+00
 \.
 
 
@@ -3197,6 +3199,7 @@ COPY public.post_audience (post_id, friend_group_id) FROM stdin;
 COPY public.post_comments (comment_id, post_id, author_user_id, parent_comment_id, body, created_at, edited_at) FROM stdin;
 3694d275-bed6-46ec-a7e5-46c71d84e87a	08221474-d003-47ff-bf23-8782c3c6217b	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	wot?	2025-05-08 11:25:03.783684+00	\N
 9e42c093-ac0b-49fe-99e4-7aa05820762f	08221474-d003-47ff-bf23-8782c3c6217b	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	wotwot?	2025-05-08 11:25:07.630015+00	\N
+293c7425-d94c-470d-b644-0ab715ad6c03	65e921bb-4f45-4dd5-bc0e-f00d2870d6f4	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	oh no	2025-05-08 12:36:27.122524+00	\N
 \.
 
 
@@ -3214,6 +3217,7 @@ COPY public.post_media (media_id, post_id, media_url, media_type, created_at) FR
 --
 
 COPY public.post_reactions (reaction_id, post_id, user_id, reaction_type, created_at) FROM stdin;
+1	65e921bb-4f45-4dd5-bc0e-f00d2870d6f4	c182f303-f6f2-41bd-9d0a-78097d627c5e	like	2025-05-08 12:54:58.07162+00
 \.
 
 
@@ -3231,6 +3235,10 @@ fb86640a-39be-4e06-b352-b83669b6fc05	c182f303-f6f2-41bd-9d0a-78097d627c5e	profil
 7809f5f0-ca3d-4df6-a44b-78e40d25bd39	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	just_me	just a me	{1,2,3,4,5,6,7,8,9,10,11,12}	2025-05-08 10:47:54.443108+00	\N
 f7e3faf2-1810-4639-82e2-bb830daa0fb6	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{10}	2025-05-08 10:48:47.003142+00	\N
 08221474-d003-47ff-bf23-8782c3c6217b	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{8,12,1}	2025-05-08 11:24:04.711061+00	\N
+65e921bb-4f45-4dd5-bc0e-f00d2870d6f4	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{3,1,4,8}	2025-05-08 12:19:33.320162+00	\N
+7be193ed-cef4-4cfe-b97a-9826f4f10f68	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{2}	2025-05-08 13:19:11.978096+00	\N
+21c2a3a8-35fd-4fa9-99cf-40c6bcaae8aa	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	erg	{3}	2025-05-08 13:19:42.325051+00	\N
+79228a2f-182e-46fd-9626-84033c6155ff	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{1,2,3,4,8}	2025-05-08 13:27:32.126102+00	\N
 \.
 
 
@@ -3249,7 +3257,7 @@ a1cf89ff-dcb5-444e-aa11-fa4fee737800	c182f303-f6f2-41bd-9d0a-78097d627c5e	Chris	
 
 COPY public.session (sid, sess, expire) FROM stdin;
 8ex2njww6rUIIooq7HbGhY1Rj1DFDDKQ	{"cookie":{"originalMaxAge":604800000,"expires":"2025-05-14T20:38:23.059Z","secure":false,"httpOnly":true,"path":"/","sameSite":"lax"},"passport":{"user":"c182f303-f6f2-41bd-9d0a-78097d627c5e"}}	2025-05-14 20:38:24
-EE8bQddlLmNUus1dG748vFEB1taFHELc	{"cookie":{"originalMaxAge":604800000,"expires":"2025-05-15T10:34:32.450Z","secure":false,"httpOnly":true,"path":"/","sameSite":"lax"},"passport":{"user":"c182f303-f6f2-41bd-9d0a-78097d627c5e"}}	2025-05-15 12:12:06
+EE8bQddlLmNUus1dG748vFEB1taFHELc	{"cookie":{"originalMaxAge":604800000,"expires":"2025-05-15T10:34:32.450Z","secure":false,"httpOnly":true,"path":"/","sameSite":"lax"},"passport":{"user":"c182f303-f6f2-41bd-9d0a-78097d627c5e"}}	2025-05-15 13:36:24
 \.
 
 
@@ -3359,8 +3367,8 @@ COPY realtime.subscription (id, subscription_id, entity, filters, claims, create
 --
 
 COPY storage.buckets (id, name, owner, created_at, updated_at, public, avif_autodetection, file_size_limit, allowed_mime_types, owner_id) FROM stdin;
-post-media	post-media	\N	2025-05-07 22:25:14.915972+00	2025-05-07 22:25:14.915972+00	t	f	5242880	\N	\N
-shadow-session-media	shadow-session-media	\N	2025-05-07 22:25:15.129532+00	2025-05-07 22:25:15.129532+00	t	f	10485760	\N	\N
+post-media	post-media	\N	2025-05-07 22:25:14.915972+00	2025-05-07 22:25:14.915972+00	f	f	5242880	\N	\N
+shadow-session-media	shadow-session-media	\N	2025-05-07 22:25:15.129532+00	2025-05-07 22:25:15.129532+00	f	f	10485760	\N	\N
 \.
 
 
@@ -3466,7 +3474,7 @@ SELECT pg_catalog.setval('public.messages_message_id_seq', 1, false);
 -- Name: post_reactions_reaction_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.post_reactions_reaction_id_seq', 1, false);
+SELECT pg_catalog.setval('public.post_reactions_reaction_id_seq', 1, true);
 
 
 --

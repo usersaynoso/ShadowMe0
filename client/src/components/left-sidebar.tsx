@@ -14,10 +14,11 @@ import {
   UserCircle
 } from "lucide-react";
 import { format } from "date-fns";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 export const LeftSidebar: FC = () => {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
 
   // Get user's circles (friend groups)
   const { data: friendGroups = [] } = useQuery<FriendGroup[]>({
@@ -110,6 +111,7 @@ export const LeftSidebar: FC = () => {
           <Button 
             variant="outline" 
             className="flex items-center justify-center w-full p-2 text-sm text-primary-600 dark:text-primary-400 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50"
+            onClick={() => navigate('/circles?openCreate=1')}
           >
             <Plus className="mr-2 h-4 w-4" /> Create New Circle
           </Button>
@@ -169,6 +171,7 @@ export const LeftSidebar: FC = () => {
           <Button 
             variant="outline" 
             className="flex items-center justify-center w-full p-2 text-sm text-primary-600 dark:text-primary-400 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50"
+            onClick={() => navigate('/shadow-sessions?openCreate=1')}
           >
             <Plus className="mr-2 h-4 w-4" /> Create New Session
           </Button>

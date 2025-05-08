@@ -1,4 +1,4 @@
-import { FC, useState } from "react";
+import { FC, useState, useEffect } from "react";
 import { MainLayout } from "@/components/main-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -154,6 +154,19 @@ const CirclesPage: FC = () => {
     setSelectedCircle(circle);
     setManageDialogOpen(true);
   };
+  
+  // Open dialog if ?openCreate=1 is in the URL
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('openCreate') === '1') {
+        setDialogOpen(true);
+        params.delete('openCreate');
+        const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
+  }, []);
   
   return (
     <MainLayout>

@@ -17,11 +17,26 @@ const ShadowSessionsPage: FC = () => {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [openCreateDialog, setOpenCreateDialog] = useState(false);
   
   // Update current time every minute
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
+  }, []);
+  
+  // Open dialog if ?openCreate=1 is in the URL
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('openCreate') === '1') {
+        setOpenCreateDialog(true);
+        // Optionally, remove the param from the URL after opening
+        params.delete('openCreate');
+        const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+        window.history.replaceState({}, '', newUrl);
+      }
+    }
   }, []);
   
   // Get upcoming shadow sessions
@@ -126,7 +141,7 @@ const ShadowSessionsPage: FC = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Shadow Sessions</h1>
-          <CreateShadowSessionDialog>
+          <CreateShadowSessionDialog open={openCreateDialog} onOpenChange={setOpenCreateDialog}>
             <Button className="flex items-center">
               <Plus className="mr-2 h-4 w-4" />
               Create Session

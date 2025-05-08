@@ -16,7 +16,7 @@ export const AvatarRing: FC<AvatarRingProps> = ({
   emotions, 
   children,
   className,
-  thickness = 14,
+  thickness = 40, // Reduced by 33% from 60 to 40
   rotation = 0, // Default to no rotation
   href
 }) => {
@@ -30,27 +30,48 @@ export const AvatarRing: FC<AvatarRingProps> = ({
     }
     
     if (emotions.length === 1) {
-      // For a single emotion, use a solid color
-      return emotions[0].color;
+      // For a single emotion, use a solid color with transparent edges
+      const color = emotions[0].color;
+      return `radial-gradient(circle, ${color} 0%, ${color} 60%, transparent 100%)`;
     } else {
-      // For multiple emotions, create a clean segmented ring
-      let gradientString = 'conic-gradient(';
+      // Create a conic gradient with color blending between adjacent emotions
+      const numEmotions = emotions.length;
+      const fullCircle = 360; // degrees
+      const segmentSize = fullCircle / numEmotions;
       
-      const step = 100 / emotions.length;
-      emotions.forEach((emotion, index) => {
-        const startPercent = index * step;
-        const endPercent = (index + 1) * step;
+      // Using degrees instead of percentages for more precise control
+      let gradientParts: string[] = [];
+      
+      for (let i = 0; i < numEmotions; i++) {
+        const currentColor = emotions[i].color;
+        const nextColor = emotions[(i + 1) % numEmotions].color;
         
-        // Add sharp color transitions
-        gradientString += `${emotion.color} ${startPercent}%, ${emotion.color} ${endPercent}%`;
+        const segmentStart = i * segmentSize;
+        const segmentEnd = (i + 1) * segmentSize;
         
-        // Add comma if not the last element
-        if (index < emotions.length - 1) {
-          gradientString += ', ';
+        // The midpoint where colors should be at full strength
+        const midPoint = segmentStart + (segmentSize / 2);
+        
+        // Blend zone size (in degrees)
+        const blendZone = segmentSize / 4; // 25% of segment for blending
+        
+        // Add the current color at the start of the segment
+        gradientParts.push(`${currentColor} ${segmentStart}deg`);
+        
+        // For smoother transitions, add more color stops
+        if (numEmotions > 2) {
+          // Midpoint of current color
+          gradientParts.push(`${currentColor} ${midPoint - blendZone}deg`);
+          
+          // Start of blend zone to next color
+          gradientParts.push(`${nextColor} ${midPoint + blendZone}deg`);
         }
-      });
+        
+        // Add the next color at the end of this segment
+        gradientParts.push(`${nextColor} ${segmentEnd}deg`);
+      }
       
-      gradientString += ')';
+      const gradientString = `conic-gradient(${gradientParts.join(', ')})`;
       return gradientString;
     }
   };
@@ -61,6 +82,7 @@ export const AvatarRing: FC<AvatarRingProps> = ({
   // Log to check emotions and gradient
   console.log('Emotions:', emotions);
   console.log('Gradient:', gradientValue);
+  console.log('Using thickness:', thickness);
   
   if (emotions.length === 0) return <>{children}</>;
   
@@ -75,11 +97,30 @@ export const AvatarRing: FC<AvatarRingProps> = ({
           inset: `-${thickness}px`,
           borderRadius: "50%",
           background: gradientValue,
-          // Simple ring mask with sharp edges
-          mask: `radial-gradient(farthest-side, transparent calc(100% - ${thickness}px), #000 0)`,
-          // No animation for now
+          // Ring mask with fading edges
+          maskImage: `radial-gradient(farthest-side, transparent calc(100% - ${thickness}px), #000 calc(100% - ${thickness}px), transparent 100%)`,
+          WebkitMaskImage: `radial-gradient(farthest-side, transparent calc(100% - ${thickness}px), #000 calc(100% - ${thickness}px), transparent 100%)`,
+          // Apply additional radial gradient to fade colors to transparent at edges
+          backgroundBlendMode: "normal",
+          boxShadow: emotions.length > 1 ? `0 0 0 ${thickness}px rgba(0,0,0,0.05) inset` : "none",
+          transform: "scale(1.2)", // Scale up the ring to make it more visible
         }}
       />
+      {/* Add an overlay div for radial fade effect for multiple emotions */}
+      {emotions.length > 1 && (
+        <div 
+          className="absolute pointer-events-none"
+          style={{
+            inset: `-${thickness}px`,
+            borderRadius: "50%",
+            background: `radial-gradient(circle, transparent 60%, rgba(0,0,0,0.25) 100%)`,
+            mixBlendMode: "overlay",
+            mask: `radial-gradient(farthest-side, transparent calc(100% - ${thickness}px), #000 0)`,
+            WebkitMask: `radial-gradient(farthest-side, transparent calc(100% - ${thickness}px), #000 0)`,
+            transform: "scale(1.2)", // Scale up the overlay to match
+          }}
+        />
+      )}
     </>
   );
   

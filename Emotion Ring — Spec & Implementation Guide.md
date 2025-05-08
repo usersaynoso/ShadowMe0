@@ -49,47 +49,59 @@ Emotion Ring — Spec & Implementation Guide
   mask: radial-gradient(farthest-side, transparent calc(100% - var(--ring-thickness)), #000 0);
 }
 
-The mask creates a clean ring with sharp edges that surrounds the avatar.
+The mask creates a clean ring with fading edges that surrounds the avatar.
 
 ⸻
 
-3. Conic gradient for segmented colors
+3. Conic gradient for segmented colors with smooth blending
 
-/* attach once after DOM ready */
-document.querySelectorAll('.avatar-ring').forEach(initRing);
+In the final implementation, the ring uses a conic-gradient with smooth blending between adjacent colors. Each emotion color smoothly transitions into the next, creating a visually appealing and modern look while still giving each emotion equal prominence.
 
-function initRing(wrapper){
-  const emotions = JSON.parse(wrapper.dataset.emotions);   // [{name,color},…]
-  const ring = wrapper.querySelector('.ring');
+**React Implementation Example:**
 
-  /* Build the conic gradient with sharp color segments */
+```tsx
+const generateGradient = (emotions: { color: string }[]) => {
+  if (emotions.length === 0) return 'transparent';
   if (emotions.length === 1) {
-    // For a single emotion, use a solid color
-    ring.style.setProperty('--gradient', emotions[0].color);
-  } else {
-    // For multiple emotions, create a clean segmented ring
-    let gradientString = 'conic-gradient(';
-    
-    const step = 100 / emotions.length;
-    emotions.forEach((emotion, index) => {
-      const startPercent = index * step;
-      const endPercent = (index + 1) * step;
-      
-      // Add sharp color transitions
-      gradientString += `${emotion.color} ${startPercent}%, ${emotion.color} ${endPercent}%`;
-      
-      // Add comma if not the last element
-      if (index < emotions.length - 1) {
-        gradientString += ', ';
-      }
-    });
-    
-    gradientString += ')';
-    ring.style.setProperty('--gradient', gradientString);
+    const color = emotions[0].color;
+    return `radial-gradient(circle, ${color} 0%, ${color} 60%, transparent 100%)`;
   }
-}
+  const numEmotions = emotions.length;
+  const fullCircle = 360;
+  const segmentSize = fullCircle / numEmotions;
+  let gradientParts: string[] = [];
+  for (let i = 0; i < numEmotions; i++) {
+    const currentColor = emotions[i].color;
+    const nextColor = emotions[(i + 1) % numEmotions].color;
+    const segmentStart = i * segmentSize;
+    const segmentEnd = (i + 1) * segmentSize;
+    const midPoint = segmentStart + (segmentSize / 2);
+    const blendZone = segmentSize / 4;
+    gradientParts.push(`${currentColor} ${segmentStart}deg`);
+    if (numEmotions > 2) {
+      gradientParts.push(`${currentColor} ${midPoint - blendZone}deg`);
+      gradientParts.push(`${nextColor} ${midPoint + blendZone}deg`);
+    }
+    gradientParts.push(`${nextColor} ${segmentEnd}deg`);
+  }
+  return `conic-gradient(${gradientParts.join(', ')})`;
+};
+```
 
-Key idea: The colors form a clean segmented ring with each emotion having an equal area.
+This function is used as the background for the ring. The ring thickness is customizable via a prop or CSS variable, and the mask ensures the ring fades to transparency at the edges.
+
+**CSS for the ring:**
+
+```css
+.ring {
+  position: absolute;
+  inset: calc(-1*var(--ring-thickness));
+  border-radius: 50%;
+  pointer-events: none;
+  background: var(--gradient);
+  mask: radial-gradient(farthest-side, transparent calc(100% - var(--ring-thickness)), #000 0);
+}
+```
 
 ⸻
 
@@ -119,10 +131,10 @@ Behaviour matrix
 
 # emotions	Gradient formula	Segment size
 1	solid-color	100%
-≥2	conic-gradient	360° / n per emotion
+≥2	conic-gradient (with blending)	360° / n per emotion
 
 ⸻
 
 Result
 
-You now have a clean, modern emotion ring that displays all selected emotions with equal prominence. The simplified design with distinct color segments provides clear visual feedback about the user's emotional state. The avatar and ring can be clicked to navigate to the user's profile, providing a seamless and intuitive user experience in the Shadow Me application. 
+You now have a clean, modern emotion ring that displays all selected emotions with equal prominence and smooth transitions. The avatar and ring can be clicked to navigate to the user's profile, providing a seamless and intuitive user experience in the Shadow Me application. 

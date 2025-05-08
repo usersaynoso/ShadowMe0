@@ -62,17 +62,17 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
     sm: {
       avatar: 'h-8 w-8',
       initials: 'text-xs',
-      thickness: 4
+      thickness: 13
     },
     md: {
       avatar: 'h-10 w-10',
       initials: 'text-sm',
-      thickness: 6
+      thickness: 20
     },
     lg: {
       avatar: 'h-16 w-16',
       initials: 'text-lg',
-      thickness: 10
+      thickness: 33
     }
   };
 

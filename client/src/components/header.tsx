@@ -37,6 +37,7 @@ export const Header: FC = () => {
   const navItems = [
     { href: "/", icon: Home, label: "Home" },
     { href: "/connections", icon: Users, label: "Connections" },
+    { href: "/circles", icon: UserCircle, label: "Circles" },
     { href: "/spaces", icon: Sparkles, label: "Spaces" },
     { href: "/shadow-sessions", icon: CalendarDays, label: "Shadow Sessions" }
   ];

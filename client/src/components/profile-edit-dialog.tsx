@@ -112,9 +112,11 @@ export const ProfileEditDialog: FC<ProfileEditDialogProps> = ({ children }) => {
         description: "Your profile picture has been updated successfully.",
       });
       
-      // Invalidate user query to refresh data
+      // Invalidate user query to refresh data AND force a refetch
       queryClient.invalidateQueries({ queryKey: [`/api/users/${user?.user_id}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      queryClient.refetchQueries({ queryKey: [`/api/users/${user?.user_id}`] });
+      queryClient.refetchQueries({ queryKey: ["/api/user"] });
     },
     onError: (error: Error) => {
       toast({
@@ -131,7 +133,7 @@ export const ProfileEditDialog: FC<ProfileEditDialogProps> = ({ children }) => {
       const res = await apiRequest("PUT", `/api/users/${user?.user_id}/profile`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast({
         title: "Profile updated",
         description: "Your profile has been updated successfully.",
@@ -141,13 +143,19 @@ export const ProfileEditDialog: FC<ProfileEditDialogProps> = ({ children }) => {
       queryClient.invalidateQueries({ queryKey: [`/api/users/${user?.user_id}`] });
       queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       
-      // Upload avatar if one was selected
-      if (avatarFile) {
-        uploadAvatarMutation.mutate(avatarFile);
+      try {
+        // Upload avatar if one was selected and wait for it to complete
+        if (avatarFile) {
+          await uploadAvatarMutation.mutateAsync(avatarFile);
+        }
+      } catch (error) {
+        // Avatar upload error is already handled in uploadAvatarMutation
+      } finally {
+        // Small delay to ensure UI updates before closing dialog
+        setTimeout(() => {
+          setOpen(false);
+        }, 500);
       }
-      
-      // Close dialog
-      setOpen(false);
     },
     onError: (error: Error) => {
       toast({

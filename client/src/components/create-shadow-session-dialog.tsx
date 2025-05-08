@@ -4,11 +4,13 @@ import { CreateShadowSession } from "./create-shadow-session";
 
 interface CreateShadowSessionDialogProps {
   children: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function CreateShadowSessionDialog({ children }: CreateShadowSessionDialogProps) {
+export function CreateShadowSessionDialog({ children, open, onOpenChange }: CreateShadowSessionDialogProps) {
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
         {children}
       </DialogTrigger>
