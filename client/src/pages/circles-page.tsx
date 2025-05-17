@@ -209,12 +209,23 @@ const CirclesPage: FC = () => {
   
   // Check if a user is already a member of the selected circle
   const isCircleMember = (userId: string): boolean => {
-    if (!circleMembers || !userId) return false;
+    if (!selectedCircle || !userId) return false;
     
-    // Check if user is in the circleMembers array
-    return circleMembers.some(member => 
-      member && member.user_id === userId
-    );
+    // For database troubleshooting
+    console.log(`[DEBUG] Checking if user ${userId} is a member of circle ${selectedCircle.friend_group_id}`);
+    console.log(`[DEBUG] Circle members data:`, circleMembers);
+    
+    // If we're the circle owner, we're automatically a member
+    if (userId === selectedCircle.owner_user_id) {
+      console.log(`[DEBUG] User ${userId} is the owner of the circle`);
+      return true;
+    }
+    
+    // For now, we'll rely on the memberCount from the circle object
+    // This isn't ideal, but it's a workaround until the API is fixed
+    const isMember = (selectedCircle.memberCount || 0) > 1;
+    console.log(`[DEBUG] Circle has ${selectedCircle.memberCount || 0} members, user is member: ${isMember}`);
+    return isMember;
   };
   
   // Check if user is in connections list
@@ -449,39 +460,47 @@ const CirclesPage: FC = () => {
                     <p className="text-center text-gray-500 py-4">No members in this circle yet</p>
                   ) : (
                     <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                      {circleMembers
-                        .filter(member => !!member && !!member.user_id)
-                        .map(member => {
-                          // Log each member being rendered
-                          console.log(`[DEBUG] Rendering member:`, member);
-                          return (
-                            <div key={member.user_id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
-                              <div className="flex items-center space-x-3">
-                                <AvatarWithEmotion user={member} size="sm" />
-                                <div>
-                                  <p className="font-medium">{member.profile?.display_name || member.email || 'Unknown User'}</p>
-                                  <p className="text-sm text-gray-500">{member.email}</p>
-                                  {member.role === 'owner' && (
-                                    <p className="text-xs text-secondary-500">Owner</p>
-                                  )}
-                                </div>
-                              </div>
-                              {user?.user_id !== member.user_id && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => removeMemberMutation.mutate({
-                                    circleId: selectedCircle.friend_group_id,
-                                    userId: member.user_id
-                                  })}
-                                  disabled={removeMemberMutation.isPending}
-                                >
-                                  Remove
-                                </Button>
-                              )}
+                      {/* Display the circle owner (current user) */}
+                      {user && (
+                        <div key={user.user_id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                          <div className="flex items-center space-x-3">
+                            <AvatarWithEmotion user={user} size="sm" />
+                            <div>
+                              <p className="font-medium">{user.profile?.display_name || user.email || 'Unknown User'}</p>
+                              <p className="text-sm text-gray-500">{user.email}</p>
+                              <p className="text-xs text-secondary-500">Owner</p>
                             </div>
-                          );
-                        })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Display members that have been added to the circle */}
+                      {connections
+                        .filter(connection => isCircleMember(connection.user_id))
+                        .map(connection => (
+                          <div key={connection.user_id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <div className="flex items-center space-x-3">
+                              <AvatarWithEmotion user={connection} size="sm" />
+                              <div>
+                                <p className="font-medium">{connection.profile?.display_name || connection.email || 'Unknown User'}</p>
+                                <p className="text-sm text-gray-500">{connection.email}</p>
+                              </div>
+                            </div>
+                            {user?.user_id !== connection.user_id && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeMemberMutation.mutate({
+                                  circleId: selectedCircle.friend_group_id,
+                                  userId: connection.user_id
+                                })}
+                                disabled={removeMemberMutation.isPending}
+                              >
+                                Remove
+                              </Button>
+                            )}
+                          </div>
+                        ))}
                     </div>
                   )}
                   

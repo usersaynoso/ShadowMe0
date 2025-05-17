@@ -127,7 +127,7 @@ export const RightSidebar: FC = () => {
             <div key={connection.user_id} className="flex items-center space-x-3">
               <AvatarWithEmotion 
                 user={connection}
-                showStatus={true}
+                showOnlineStatus={true}
               />
               
               <div className="flex-1 min-w-0">

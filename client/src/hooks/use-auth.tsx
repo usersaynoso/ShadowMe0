@@ -33,9 +33,7 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
-  console.log('AuthProvider: Initializing');
   
-  console.log('AuthProvider: About to call useQuery');
   const {
     data: user,
     error,
@@ -45,9 +43,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
-  // Log the results after the query
-  console.log('AuthProvider: Query completed - user:', user, 'isLoading:', isLoading, 'error:', error);
-
   const [location, navigate] = useLocation();
 
   const loginMutation = useMutation({
@@ -56,7 +51,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return await res.json();
     },
     onSuccess: (user: User) => {
-      console.log('Login successful - setting user data and redirecting', user);
       queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Welcome back!",
@@ -64,7 +58,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       
       // Force navigation with window.location instead of wouter navigate
-      console.log('About to navigate to homepage using window.location...');
       window.location.href = "/";
     },
     onError: (error: Error) => {
@@ -88,7 +81,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         description: "Welcome to Shadow Me! Your journey begins now.",
       });
       // Force navigation with window.location instead of wouter navigate
-      console.log('About to navigate to homepage using window.location after registration...');
       window.location.href = "/";
     },
     onError: (error: Error) => {

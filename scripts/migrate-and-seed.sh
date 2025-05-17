@@ -39,7 +39,8 @@ if [[ "$confirmation" != "y" && "$confirmation" != "Y" ]]; then
 fi
 
 echo -e "${PURPLE}Step 1: Testing Supabase connection...${NC}"
-node scripts/check-supabase-connection.js
+# Modified - use create-buckets.ts instead which tests connection implicitly
+npx tsx scripts/create-buckets.ts -- --check-only
 if [ $? -ne 0 ]; then
   echo -e "${RED}Failed to connect to Supabase. Please check your credentials.${NC}"
   exit 1
@@ -49,7 +50,7 @@ echo ""
 
 # Execute the migration script
 echo -e "${PURPLE}Step 2: Executing migration script...${NC}"
-node scripts/execute-migration.js
+node scripts/execute-schema-sql.js
 if [ $? -ne 0 ]; then
   echo -e "${RED}Migration failed. See error message above.${NC}"
   exit 1

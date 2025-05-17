@@ -15,6 +15,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Group } from "@/types";
 import { Loader2, Search, Users, Plus, Globe, Lock, Tag, UserPlus } from "lucide-react";
+import { Link } from "wouter";
 
 const SpacesPage: FC = () => {
   const { user } = useAuth();
@@ -403,7 +404,9 @@ const SpacesPage: FC = () => {
                       </div>
                     </CardContent>
                     <CardFooter className="flex gap-2">
-                      <Button className="flex-1">View Space</Button>
+                      <Link href={`/spaces/${space.group_id}`}>
+                        <Button className="flex-1">View Space</Button>
+                      </Link>
                       <Button 
                         variant="outline" 
                         className="flex-1"
@@ -473,23 +476,9 @@ const SpacesPage: FC = () => {
                       </div>
                     </CardContent>
                     <CardFooter>
-                      {isSpaceMember(space.group_id) ? (
-                        <Button 
-                          variant="outline" 
-                          className="w-full"
-                        >
-                          View Space
-                        </Button>
-                      ) : (
-                        <Button 
-                          className="w-full"
-                          onClick={() => joinSpaceMutation.mutate(space.group_id)}
-                          disabled={joinSpaceMutation.isPending}
-                        >
-                          <UserPlus className="h-4 w-4 mr-2" />
-                          {joinSpaceMutation.isPending ? "Joining..." : "Join Space"}
-                        </Button>
-                      )}
+                      <Link href={`/spaces/${space.group_id}`}>
+                        <Button className="w-full">View Space</Button>
+                      </Link>
                     </CardFooter>
                   </Card>
                 ))}

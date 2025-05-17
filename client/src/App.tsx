@@ -10,20 +10,9 @@ import CirclesPage from "@/pages/circles-page";
 import ShadowSessionsPage from "@/pages/shadow-sessions-page";
 import ProfilePage from "@/pages/profile-page";
 import { ShadowSessionViewPage } from "@/pages/shadow-session-view";
+import SpaceViewPage from "@/pages/spaces-[spaceId]";
 import { ProtectedRoute } from "./lib/protected-route";
 import { AuthProvider } from "./hooks/use-auth";
-import { useEffect } from "react";
-
-// Wrapper to debug routing
-function RouteLogger() {
-  const [location] = useLocation();
-  
-  useEffect(() => {
-    console.log('Route changed to:', location);
-  }, [location]);
-  
-  return null;
-}
 
 function Router() {
   return (
@@ -33,6 +22,7 @@ function Router() {
       <ProtectedRoute path="/connections" component={() => <ConnectionsPage />} />
       <ProtectedRoute path="/circles" component={() => <CirclesPage />} />
       <ProtectedRoute path="/spaces" component={() => <SpacesPage />} />
+      <ProtectedRoute path="/spaces/:spaceId" component={() => <SpaceViewPage />} />
       <ProtectedRoute path="/shadow-sessions" component={() => <ShadowSessionsPage />} />
       <ProtectedRoute path="/shadow-sessions/:sessionId" component={() => <ShadowSessionViewPage />} />
       <ProtectedRoute path="/profile/:userId?" component={() => <ProfilePage />} />
@@ -46,7 +36,6 @@ function App() {
   return (
     <AuthProvider>
       <TooltipProvider>
-        <RouteLogger />
         <Toaster />
         <Router />
       </TooltipProvider>

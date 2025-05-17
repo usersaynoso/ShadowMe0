@@ -1,4 +1,4 @@
-import { FC, useEffect } from 'react';
+import { FC } from 'react';
 import { User } from "@/types";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { OnlineStatus } from "@/components/ui/online-status";
@@ -41,14 +41,6 @@ export const AvatarWithRing: FC<AvatarWithRingProps> = ({
       return emotion || null;
     })
     .filter(Boolean) as Emotion[];
-  
-  // Debug log the emotions being used
-  useEffect(() => {
-    console.log('User:', user.user_id);
-    console.log('Selected emotion IDs:', selectedEmotionIds);
-    console.log('All emotions from API:', allEmotions);
-    console.log('Mapped emotions for ring:', emotions);
-  }, [user, selectedEmotionIds, allEmotions, emotions]);
   
   // If no emotions or still loading, use a default set for testing visibility
   const emotionsToUse = emotions.length > 0 ? emotions : [

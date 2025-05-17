@@ -665,14 +665,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "You do not have permission to access this circle" });
       }
       
-      // Get all members of the friend group
       const members = await storage.getFriendGroupMembers(req.params.groupId);
-      
-      // Log debug info
       console.log(`[API] Found ${members.length} members for circle ${req.params.groupId}:`);
       console.log(JSON.stringify(members, null, 2).substring(0, 1000)); // Log up to 1000 chars to avoid huge logs
       
-      // Return the array of user objects
       return res.json(members);
     } catch (error) {
       console.error("[API Error] Error getting circle members:", error);
@@ -795,7 +791,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/groups/member", isAuthenticated, async (req, res) => {
     try {
-      const groups = await storage.getUserGroups(req.user.user_id);
+      const groups = await storage.getUserGroups(req.user!.user_id);
       res.json(groups);
     } catch (err) {
       console.error("Failed to get user groups:", err);
@@ -805,21 +801,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/groups/categories", isAuthenticated, async (req, res) => {
     try {
-      // This would typically come from a database
-      const categories = [
-        { id: "mindfulness", name: "Mindfulness & Meditation" },
-        { id: "creativity", name: "Creativity & Art" },
-        { id: "wellness", name: "Mental Wellness" },
-        { id: "nature", name: "Nature & Outdoors" },
-        { id: "reading", name: "Reading & Literature" },
-        { id: "music", name: "Music & Sound" },
-        { id: "selfcare", name: "Self-Care" },
-        { id: "community", name: "Community Support" }
-      ];
+      const categories = await storage.getGroupCategories();
       res.json(categories);
     } catch (err) {
       console.error("Failed to get group categories:", err);
       res.status(500).json({ message: "Failed to get group categories" });
+    }
+  });
+
+  app.get("/api/groups/:groupId", isAuthenticated, async (req, res) => {
+    try {
+      const groupId = req.params.groupId;
+      const group = await storage.getGroupById(groupId);
+      
+      if (!group) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+      
+      res.json(group);
+    } catch (err) {
+      console.error("Failed to get group:", err);
+      res.status(500).json({ message: "Failed to get group" });
     }
   });
 
@@ -1270,6 +1272,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Serve uploaded files
   app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
+  // Get members of a specific group
+  app.get("/api/groups/:groupId/members", isAuthenticated, async (req, res) => {
+    try {
+      const groupId = req.params.groupId;
+      
+      // First check if the group exists
+      const group = await storage.getGroupById(groupId);
+      if (!group) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+      
+      // Then get the members
+      const members = await storage.getGroupMembers(groupId);
+      res.json(members);
+    } catch (err) {
+      console.error("Failed to get group members:", err);
+      res.status(500).json({ message: "Failed to get group members" });
+    }
+  });
 
   return httpServer;
 }

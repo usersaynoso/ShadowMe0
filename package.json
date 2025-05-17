@@ -11,6 +11,7 @@
     "check": "tsc",
     "db:push": "drizzle-kit push:pg",
     "db:seed": "tsx scripts/seed-emotions.ts",
+    "db:backup": "node ./scripts/backup-database.js",
     "storage:setup": "tsx scripts/create-buckets.ts",
     "setup": "npm run db:push && npm run db:seed && npm run storage:setup",
     "test": "echo \"Error: no test specified\" && exit 1"

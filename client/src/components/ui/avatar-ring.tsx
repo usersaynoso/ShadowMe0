@@ -1,4 +1,4 @@
-import { FC, useEffect, useRef, ReactNode } from "react";
+import { FC, useRef, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Emotion } from "@/types";
 import { Link } from "wouter";
@@ -78,11 +78,6 @@ export const AvatarRing: FC<AvatarRingProps> = ({
   
   // Generate gradient value
   const gradientValue = generateGradient();
-  
-  // Log to check emotions and gradient
-  console.log('Emotions:', emotions);
-  console.log('Gradient:', gradientValue);
-  console.log('Using thickness:', thickness);
   
   if (emotions.length === 0) return <>{children}</>;
   

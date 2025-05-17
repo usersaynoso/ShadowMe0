@@ -1,5 +1,5 @@
 import { db, supabase } from "./db";
-import { eq, and, ne, or, inArray, gte, lte, not, like, desc, sql } from "drizzle-orm";
+import { eq, and, ne, or, inArray, gte, lte, not, like, desc, sql, count } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { users, profiles, friends, friend_groups, friend_group_members, 
          groups, group_members, emotions, posts, post_audience, post_media, 
@@ -119,6 +119,13 @@ export interface IStorage {
 
   // NEW: Get a user by their ID
   getUserById(userId: string): Promise<any | null>;
+
+  // Add to the interface definition in the proper location
+  getGroupById(groupId: string): Promise<any>;
+  getGroupCategories(): Promise<any[]>;
+
+  // Add to the interface definition
+  getGroupMembers(groupId: string): Promise<any[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -781,76 +788,42 @@ export class DatabaseStorage implements IStorage {
     console.log(`[DEBUG] Getting members for friend group ${groupId}`);
     
     try {
-      // First, get the owner of the group
-      const [group] = await db.select()
-        .from(friend_groups)
-        .where(eq(friend_groups.friend_group_id, groupId))
-        .limit(1);
+      const members = await db.select({
+          user: users,
+          profile: profiles,
+          role: friend_group_members.role
+        })
+        .from(friend_group_members)
+        .innerJoin(users, eq(friend_group_members.user_id, users.user_id))
+        .leftJoin(profiles, eq(users.user_id, profiles.user_id))
+        .where(eq(friend_group_members.friend_group_id, groupId));
       
-      if (!group) {
-        console.log(`[DEBUG] Group ${groupId} not found`);
-        return [];
+      console.log(`[DEBUG] Found ${members.length} raw members for friend group ${groupId}`);
+      
+      // Log raw members data
+      if (members.length > 0) {
+        console.log(`[DEBUG] First raw member:`, JSON.stringify(members[0], null, 2));
       }
       
-      // Get the owner user with profile
-      const ownerData = await db.select({
-        user: users,
-        profile: profiles
-      })
-      .from(users)
-      .where(eq(users.user_id, group.owner_user_id))
-      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
-      .limit(1);
+      // Transform the data structure to what the frontend expects:
+      // Each user should have user_id at the top level, not nested in user property
+      const validMembers = members
+        .filter(member => !!member && !!member.user && typeof member.user.user_id === 'string')
+        .map(member => ({
+          user_id: member.user.user_id, // Add user_id at top level for frontend
+          email: member.user.email,
+          created_at: member.user.created_at,
+          updated_at: member.user.updated_at,
+          profile: member.profile,
+          role: member.role
+        }));
       
-      // Get all other members
-      const membersData = await db.select({
-        user: users,
-        profile: profiles,
-        role: friend_group_members.role
-      })
-      .from(friend_group_members)
-      .innerJoin(users, eq(friend_group_members.user_id, users.user_id))
-      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
-      .where(and(
-        eq(friend_group_members.friend_group_id, groupId),
-        ne(friend_group_members.user_id, group.owner_user_id) // Skip owner as we already got them
-      ));
-      
-      // Prepare owner data in the expected format
-      const ownerUser = ownerData.length > 0 ? {
-        user_id: ownerData[0].user.user_id,
-        email: ownerData[0].user.email,
-        user_type: ownerData[0].user.user_type,
-        user_points: ownerData[0].user.user_points,
-        user_level: ownerData[0].user.user_level,
-        is_active: ownerData[0].user.is_active,
-        created_at: ownerData[0].user.created_at,
-        profile: ownerData[0].profile,
-        role: 'owner'
-      } : null;
-      
-      // Process all members
-      const membersArray = membersData.map(member => ({
-        user_id: member.user.user_id,
-        email: member.user.email,
-        user_type: member.user.user_type,
-        user_points: member.user.user_points,
-        user_level: member.user.user_level,
-        is_active: member.user.is_active,
-        created_at: member.user.created_at,
-        profile: member.profile,
-        role: member.role
-      }));
-      
-      // Create final array with owner at the beginning, followed by members
-      const allMembers = ownerUser ? [ownerUser, ...membersArray] : membersArray;
-      
-      console.log(`[DEBUG] Returning ${allMembers.length} members for friend group ${groupId}`);
-      if (allMembers.length > 0) {
-        console.log(`[DEBUG] First member:`, JSON.stringify(allMembers[0], null, 2));
+      console.log(`[DEBUG] Returning ${validMembers.length} valid members after filtering`);
+      if (validMembers.length > 0) {
+        console.log(`[DEBUG] First processed member:`, JSON.stringify(validMembers[0], null, 2));
       }
       
-      return allMembers;
+      return validMembers;
     } catch (error) {
       console.error(`[ERROR] Failed to get members for friend group ${groupId}:`, error);
       return [];
@@ -1619,38 +1592,63 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  // Upload session media to Supabase Storage
-  async uploadSessionMedia(filePath: string, fileName: string, sessionId: string): Promise<string> {
+  // Generic file upload method to handle all file uploads
+  private async uploadFileToSupabase(
+    filePath: string, 
+    fileName: string, 
+    bucketName: string, 
+    uniqueFileName: string, 
+    contentType: string | null = null,
+    upsert: boolean = false
+  ): Promise<string> {
     try {
       const fs = await import('fs');
       const fileData = fs.readFileSync(filePath);
       const fileExt = fileName.split('.').pop();
-      const timestamp = Date.now();
-      const uniqueFileName = `session_${sessionId}_${timestamp}.${fileExt}`;
       
       // Upload to Supabase Storage
       const { data, error } = await supabase
         .storage
-        .from('shadow-session-media')
+        .from(bucketName)
         .upload(uniqueFileName, fileData, {
-          contentType: this.getMimeType(fileExt || ''),
-          upsert: false
+          contentType: contentType || this.getMimeType(fileExt || ''),
+          upsert: upsert
         });
       
       if (error) {
+        console.error(`Error uploading to ${bucketName}:`, error);
         throw error;
       }
 
       // Generate a public URL for the uploaded file
       const { data: { publicUrl } } = supabase
         .storage
-        .from('shadow-session-media')
+        .from(bucketName)
         .getPublicUrl(uniqueFileName);
 
       // Clean up the temporary file
       fs.unlinkSync(filePath);
       
       return publicUrl;
+    } catch (error) {
+      console.error(`Error in uploadFileToSupabase (${bucketName}):`, error);
+      throw error;
+    }
+  }
+
+  // Upload session media to Supabase Storage
+  async uploadSessionMedia(filePath: string, fileName: string, sessionId: string): Promise<string> {
+    try {
+      const fileExt = fileName.split('.').pop();
+      const timestamp = Date.now();
+      const uniqueFileName = `session_${sessionId}_${timestamp}.${fileExt}`;
+      
+      return await this.uploadFileToSupabase(
+        filePath,
+        fileName,
+        'shadow-session-media',
+        uniqueFileName
+      );
     } catch (error) {
       console.error("Error uploading session media:", error);
       throw error;
@@ -1682,33 +1680,16 @@ export class DatabaseStorage implements IStorage {
   // Upload post media to Supabase Storage
   async uploadPostMedia(filePath: string, fileName: string, postId: string): Promise<string> {
     try {
-      const fs = await import('fs');
-      const fileData = fs.readFileSync(filePath);
       const fileExt = fileName.split('.').pop();
       const timestamp = Date.now();
       const uniqueFileName = `post_${postId}_${timestamp}.${fileExt}`;
       
-      // Upload to Supabase Storage
-      const { data, error } = await supabase
-        .storage
-        .from('post-media')
-        .upload(uniqueFileName, fileData, {
-          contentType: this.getMimeType(fileExt || ''),
-          upsert: false
-        });
-      
-      if (error) {
-        throw error;
-      }
-
-      // Generate a public URL for the uploaded file
-      const { data: { publicUrl } } = supabase
-        .storage
-        .from('post-media')
-        .getPublicUrl(uniqueFileName);
-
-      // Clean up the temporary file
-      fs.unlinkSync(filePath);
+      const publicUrl = await this.uploadFileToSupabase(
+        filePath,
+        fileName,
+        'post-media',
+        uniqueFileName
+      );
       
       // Add entry to post_media table
       await db.insert(post_media).values({
@@ -1727,39 +1708,18 @@ export class DatabaseStorage implements IStorage {
   // Upload user avatar to Supabase Storage
   async uploadUserAvatar(filePath: string, fileName: string, userId: string): Promise<string> {
     try {
-      const fs = await import('fs');
-      const fileData = fs.readFileSync(filePath);
       const fileExt = fileName.split('.').pop();
       const timestamp = Date.now();
       const uniqueFileName = `avatar_${userId}_${timestamp}.${fileExt}`;
       
-      // Use the user-avatars bucket that we've created and made public
-      const bucketName = 'user-avatars';
-      
-      // Upload to Supabase Storage
-      const { data, error } = await supabase
-        .storage
-        .from(bucketName)
-        .upload(uniqueFileName, fileData, {
-          contentType: this.getMimeType(fileExt || ''),
-          upsert: true // Override previous avatar if it exists
-        });
-      
-      if (error) {
-        console.error("Error uploading avatar to storage:", error);
-        throw error;
-      }
-
-      // Generate a public URL for the uploaded file
-      const { data: { publicUrl } } = supabase
-        .storage
-        .from(bucketName)
-        .getPublicUrl(uniqueFileName);
-
-      // Clean up the temporary file
-      fs.unlinkSync(filePath);
-      
-      return publicUrl;
+      return await this.uploadFileToSupabase(
+        filePath,
+        fileName,
+        'user-avatars',
+        uniqueFileName,
+        null,
+        true // Override previous avatar if it exists
+      );
     } catch (error) {
       console.error("Error uploading user avatar:", error);
       throw error;
@@ -2162,6 +2122,96 @@ export class DatabaseStorage implements IStorage {
       console.log(`Updated last emotions for user ${userId} to:`, emotionIds);
     } catch (error) {
       console.error('Error updating user last emotions:', error);
+    }
+  }
+
+  // Add the actual method implementations at the end of the class
+  async getGroupById(groupId: string): Promise<any> {
+    try {
+      const result = await db.select()
+        .from(groups)
+        .where(eq(groups.group_id, groupId))
+        .limit(1);
+        
+      if (result.length === 0) {
+        return null;
+      }
+      
+      // Get member count
+      const memberCountResult = await db.select({ count: count() })
+        .from(group_members)
+        .where(eq(group_members.group_id, groupId));
+        
+      const memberCount = memberCountResult[0]?.count || 0;
+      
+      // Get preview members (limited number of members for display)
+      const previewMembers = await db.select({
+        user_id: group_members.user_id
+      })
+      .from(group_members)
+      .where(eq(group_members.group_id, groupId))
+      .limit(5);
+      
+      // Get full user objects for preview members
+      const previewMemberDetails = await Promise.all(
+        previewMembers.map(async (member) => {
+          const user = await this.getUserById(member.user_id);
+          return user;
+        })
+      );
+      
+      return {
+        ...result[0],
+        memberCount,
+        previewMembers: previewMemberDetails
+      };
+    } catch (error) {
+      console.error("Error fetching group by ID:", error);
+      throw error;
+    }
+  }
+
+  async getGroupCategories(): Promise<any[]> {
+    try {
+      // In a real implementation, this would fetch from the database
+      // For now, we'll return hardcoded categories
+      return [
+        { id: "mindfulness", name: "Mindfulness & Meditation" },
+        { id: "creativity", name: "Creativity & Art" },
+        { id: "wellness", name: "Mental Wellness" },
+        { id: "nature", name: "Nature & Outdoors" },
+        { id: "reading", name: "Reading & Literature" },
+        { id: "music", name: "Music & Sound" },
+        { id: "selfcare", name: "Self-Care" },
+        { id: "community", name: "Community Support" }
+      ];
+    } catch (error) {
+      console.error("Error fetching group categories:", error);
+      throw error;
+    }
+  }
+
+  // Add the implementation
+  async getGroupMembers(groupId: string): Promise<any[]> {
+    try {
+      // First get all member user IDs
+      const memberRows = await db.select({
+        user_id: group_members.user_id
+      })
+      .from(group_members)
+      .where(eq(group_members.group_id, groupId));
+      
+      // Then get the full user details for each member
+      const members = await Promise.all(
+        memberRows.map(async (row) => {
+          return this.getUserById(row.user_id);
+        })
+      );
+      
+      return members.filter(Boolean); // Filter out any null values
+    } catch (error) {
+      console.error("Error fetching group members:", error);
+      throw error;
     }
   }
 }

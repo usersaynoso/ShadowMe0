@@ -55,7 +55,7 @@ async function executeSchema() {
     const migrationsPath = join(process.cwd(), 'migrations');
     if (!fs.existsSync(migrationsPath)) {
       console.error(chalk.red('❌ Migrations folder not found. Please generate migrations first:'));
-      console.error(chalk.yellow('   node scripts/generate-schema-sql.js'));
+      console.error(chalk.yellow('   node scripts/generate-migration-sql.js'));
       process.exit(1);
     }
     
@@ -67,7 +67,7 @@ async function executeSchema() {
     
     if (sqlFiles.length === 0) {
       console.error(chalk.red('❌ No SQL migration files found. Please generate migrations first:'));
-      console.error(chalk.yellow('   node scripts/generate-schema-sql.js'));
+      console.error(chalk.yellow('   node scripts/generate-migration-sql.js'));
       process.exit(1);
     }
     

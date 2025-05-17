@@ -24,7 +24,7 @@ async function migrateAndVerify() {
     // Step 2: Test Supabase connection
     console.log(chalk.cyan('\n🔌 Step 2: Testing Supabase connection...'));
     try {
-      execSync('node scripts/check-supabase-connection.js', { stdio: 'inherit' });
+      execSync('npx tsx scripts/create-buckets.ts -- --check-only', { stdio: 'inherit' });
       console.log(chalk.green('✅ Supabase connection successful.'));
     } catch (error) {
       console.error(chalk.red('❌ Failed to connect to Supabase.'));
@@ -48,7 +48,7 @@ async function migrateAndVerify() {
       console.log(chalk.cyan('\n🗄️ Step 4: Running database migration...'));
       
       try {
-        execSync('node scripts/execute-migration.js', { stdio: 'inherit' });
+        execSync('node scripts/execute-schema-sql.js', { stdio: 'inherit' });
         console.log(chalk.green('✅ Migration executed successfully.'));
       } catch (error) {
         console.error(chalk.red('❌ Migration failed.'));
@@ -77,7 +77,7 @@ async function migrateAndVerify() {
       // Seed emotions
       console.log(chalk.cyan('\n🌱 Seeding emotions table...'));
       try {
-        execSync('node scripts/seed-emotions.js', { stdio: 'inherit' });
+        execSync('npx tsx scripts/seed-emotions.ts', { stdio: 'inherit' });
         console.log(chalk.green('✅ Emotions table seeded successfully.'));
       } catch (error) {
         console.error(chalk.red('❌ Failed to seed emotions table.'));
