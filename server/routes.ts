@@ -310,10 +310,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/posts/:postId/comments", isAuthenticated, async (req, res) => {
     try {
       const { postId } = req.params;
-      const user = req.user! as User;
+      const user_id = req.user!.user_id;
       
-      // Get the post to check audience, passing the current user ID
-      const post = await storage.getPostById(postId, user.user_id);
+      const post = await storage.getPostById(postId, user_id);
       if (!post) {
         return res.status(404).json({ error: 'Post not found' });
       }
@@ -328,45 +327,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/posts/:postId/comments", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user! as User;
       const { postId } = req.params;
       const { body, parent_comment_id } = req.body;
-      
-      if (!body) {
+      const author_user_id = req.user!.user_id;
+
+      if (!body || typeof body !== 'string' || body.trim() === '') {
         return res.status(400).json({ error: 'Comment body is required' });
       }
       
-      // Get the post to check author and notify them, passing the current user ID
-      const post = await storage.getPostById(postId, user.user_id);
+      const post = await storage.getPostById(postId, author_user_id);
       if (!post) {
         return res.status(404).json({ error: 'Post not found' });
       }
       
       const newComment = await storage.createComment({
         post_id: postId,
-        author_user_id: user.user_id,
+        author_user_id: author_user_id,
         parent_comment_id: parent_comment_id || null,
         body
       });
       
-      // Notify the post author (if not the same as commenter)
-      if (post.author_user_id !== user.user_id) {
+      if (post.author_user_id !== author_user_id) {
         await createUserNotification(
           post.author_user_id,
-          user.user_id,
+          author_user_id,
           'post_commented',
           `commented on your post`,
           postId
         );
       }
       
-      // If replying to a comment, also notify the comment author
       if (parent_comment_id) {
         const parentComment = await storage.getCommentById(parent_comment_id);
-        if (parentComment && parentComment.author_user_id !== user.user_id) {
+        if (parentComment && parentComment.author_user_id !== author_user_id) {
           await createUserNotification(
             parentComment.author_user_id,
-            user.user_id,
+            author_user_id,
             'post_commented',
             `replied to your comment`,
             postId
@@ -381,13 +377,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/comments/:commentId/replies - Create a reply to a comment
+  app.post("/api/comments/:commentId/replies", isAuthenticated, async (req, res) => {
+    try {
+      const { commentId: parent_comment_id } = req.params;
+      const { body } = req.body;
+      const author_user_id = req.user!.user_id;
+
+      if (!body || typeof body !== 'string' || body.trim() === '') {
+        return res.status(400).json({ message: "Reply body cannot be empty" });
+      }
+
+      const parentComment = await storage.getCommentById(parent_comment_id);
+      if (!parentComment) {
+        return res.status(404).json({ message: "Parent comment not found" });
+      }
+      const post_id = parentComment.post_id;
+
+      if (!post_id) { 
+        console.error(`Parent comment ${parent_comment_id} is missing post_id`);
+        return res.status(500).json({ message: "Failed to create reply due to missing post association on parent comment." });
+      }
+
+      const reply = await storage.createComment({
+        post_id, 
+        author_user_id,
+        parent_comment_id,
+        body,
+      });
+      
+      const newReplyWithAuthor = await storage.getCommentById(reply.comment_id);
+
+      if (parentComment.author_user_id !== author_user_id) {
+        await createUserNotification(
+          parentComment.author_user_id,
+          author_user_id,
+          'comment_replied',
+          `replied to your comment: "${body.substring(0, 30)}${body.length > 30 ? '...' : ''}"`,
+          `/post/${post_id}?comment=${reply.comment_id}`
+        );
+      }
+      
+      const post = await storage.getPostById(post_id, author_user_id);
+      if (post && post.author_user_id !== author_user_id && post.author_user_id !== parentComment.author_user_id) {
+         await createUserNotification(
+          post.author_user_id,
+          author_user_id,
+          'post_commented', 
+          `replied to a comment on your post: "${body.substring(0, 30)}${body.length > 30 ? '...' : ''}"`,
+          `/post/${post_id}?comment=${reply.comment_id}`
+        );
+      }
+
+      res.status(201).json(newReplyWithAuthor);
+    } catch (err) {
+      console.error("Failed to create reply:", err);
+      // Ensure JSON response for errors too
+      if (err instanceof Error && (err as any).status) {
+        return res.status((err as any).status).json({ message: err.message });
+      }
+      res.status(500).json({ message: "Failed to create reply" });
+    }
+  });
+
   app.get("/api/posts/:postId/reaction/:userId", isAuthenticated, async (req, res) => {
     try {
       const { postId, userId } = req.params;
-      const requestingUser = req.user! as User;
+      const requestingUser_id = req.user!.user_id;
       
-      // Get the post to check audience, passing the current user ID
-      const post = await storage.getPostById(postId, requestingUser.user_id);
+      const post = await storage.getPostById(postId, requestingUser_id);
       if (!post) {
         return res.status(404).json({ error: 'Post not found' });
       }
@@ -402,7 +460,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/posts/:postId/reactions", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user! as User;
+      const user_id = req.user!.user_id;
       const { postId } = req.params;
       const { reaction_type } = req.body;
       
@@ -410,7 +468,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: 'Reaction type is required' });
       }
       
-      // Validate reaction_type against the enum values from shared/schema.ts
       if (!reactionTypeEnum.enumValues.includes(reaction_type)) {
         return res.status(400).json({ 
           error: 'Invalid reaction type',
@@ -418,23 +475,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Get the post to check author and notify them, passing the current user ID
-      const post = await storage.getPostById(postId, user.user_id);
+      const post = await storage.getPostById(postId, user_id);
       if (!post) {
         return res.status(404).json({ error: 'Post not found' });
       }
       
       const newReaction = await storage.createReaction({
         post_id: postId,
-        user_id: user.user_id,
+        user_id: user_id,
         reaction_type
       });
       
-      // Notify the post author (if not the same as reactor)
-      if (post.author_user_id !== user.user_id) {
+      if (post.author_user_id !== user_id) {
         await createUserNotification(
           post.author_user_id,
-          user.user_id,
+          user_id,
           'post_liked',
           `reacted to your post with ${reaction_type}`,
           postId
@@ -501,22 +556,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/shadow-sessions/:sessionId/join", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user! as User;
+      const user_id = req.user!.user_id;
       const { sessionId } = req.params;
       
-      // Check if session exists
       const session = await storage.getShadowSession(sessionId);
       if (!session) {
         return res.status(404).json({ error: 'Shadow session not found' });
       }
       
-      await storage.joinShadowSession(sessionId, user.user_id);
+      await storage.joinShadowSession(sessionId, user_id);
       
-      // Notify the creator that someone joined their session
-      if (session.author_user_id !== user.user_id) {
+      if (session.author_user_id !== user_id) {
         await createUserNotification(
           session.author_user_id,
-          user.user_id,
+          user_id,
           'shadow_session_created',
           `joined your shadow session "${session.title}"`,
           sessionId
@@ -546,19 +599,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { sessionId } = req.params;
       const userId = req.user!.user_id;
 
-      // Check if session exists
       const session = await storage.getShadowSession(sessionId);
       if (!session) {
         return res.status(404).json({ error: 'Shadow session not found' });
       }
 
-      // Check if user is a participant in the session
       const isParticipant = await storage.isUserSessionParticipant(sessionId, userId);
       if (!isParticipant) {
         return res.status(403).json({ error: 'You must be a participant to share media in this session' });
       }
 
-      // Check if session is active
       const now = new Date();
       const startsAt = new Date(session.starts_at);
       const endsAt = new Date(session.ends_at);
@@ -568,20 +618,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ error: 'Media can only be shared during active sessions' });
       }
 
-      // Check if a file was uploaded
       if (!req.file) {
         return res.status(400).json({ error: 'No media file provided' });
       }
 
-      // Save the media to storage (Supabase)
       const mediaPath = req.file.path;
       const mediaType = req.file.mimetype;
       const mediaSize = req.file.size;
       
-      // Upload the file to storage and get the URL
       const mediaUrl = await storage.uploadSessionMedia(mediaPath, req.file.originalname, sessionId);
       
-      // Create a message about the media being shared
       const mediaMessage = {
         type: 'media_share',
         sessionId,
@@ -591,11 +637,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdAt: new Date().toISOString()
       };
       
-      // Save the media message
       await storage.createSessionMediaMessage(mediaMessage);
-      
-      // Broadcast to all session participants via WebSocket
-      // This will be handled by the WebSocket server
       
       return res.status(200).json({ 
         success: true, 
@@ -614,19 +656,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { sessionId } = req.params;
       const userId = req.user!.user_id;
       
-      // Check if session exists
       const session = await storage.getShadowSession(sessionId);
       if (!session) {
         return res.status(404).json({ error: 'Shadow session not found' });
       }
       
-      // Check if user is a participant in the session
       const isParticipant = await storage.isUserSessionParticipant(sessionId, userId);
       if (!isParticipant) {
         return res.status(403).json({ error: 'You must be a participant to view session media' });
       }
       
-      // Get session media messages
       const mediaMessages = await storage.getSessionMediaMessages(sessionId);
       
       return res.status(200).json(mediaMessages);
@@ -666,7 +705,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log(`[API] Getting members for circle: ${req.params.groupId}, User: ${req.user!.user_id}`);
       
-      // Verify user has access to this friend group
       const canAccess = await storage.canAccessFriendGroup(req.params.groupId, req.user!.user_id);
       if (!canAccess) {
         console.log(`[API] Access denied - user ${req.user!.user_id} does not have access to circle ${req.params.groupId}`);
@@ -675,7 +713,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const members = await storage.getFriendGroupMembers(req.params.groupId);
       console.log(`[API] Found ${members.length} members for circle ${req.params.groupId}:`);
-      console.log(JSON.stringify(members, null, 2).substring(0, 1000)); // Log up to 1000 chars to avoid huge logs
+      console.log(JSON.stringify(members, null, 2).substring(0, 1000));
       
       return res.json(members);
     } catch (error) {
@@ -689,7 +727,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log(`[API] Adding member to circle. GroupId: ${req.params.groupId}, UserId: ${req.user!.user_id}, MemberId: ${req.body.user_id}`);
       
-      // Validate inputs
       const groupId = req.params.groupId;
       const memberUserId = req.body.user_id;
       
@@ -703,14 +740,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid user ID" });
       }
       
-      // Check if the user being added exists
       const userToAdd = await storage.getUserById(memberUserId);
       if (!userToAdd) {
         console.log(`[API] User to add not found: ${memberUserId}`);
         return res.status(404).json({ message: "User not found" });
       }
       
-      // Verify user is the owner of this friend group
       const isOwner = await storage.isFriendGroupOwner(groupId, req.user!.user_id);
       console.log(`[API] Is user the circle owner? ${isOwner}`);
       
@@ -719,7 +754,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Only the circle owner can add members" });
       }
       
-      // Verify the user to be added is a connection
       const isConnection = await storage.areUsersConnected(req.user!.user_id, memberUserId);
       console.log(`[API] Are users connected? ${isConnection}`);
       
@@ -741,7 +775,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // NEW: Remove member from a friend group
   app.delete("/api/friend-groups/:groupId/members/:userId", isAuthenticated, async (req, res) => {
     try {
-      // Verify user is the owner of this friend group
       const isOwner = await storage.isFriendGroupOwner(req.params.groupId, req.user!.user_id);
       if (!isOwner) {
         return res.status(403).json({ message: "Only the circle owner can remove members" });
@@ -758,7 +791,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // NEW: Delete a friend group
   app.delete("/api/friend-groups/:groupId", isAuthenticated, async (req, res) => {
     try {
-      // Verify user is the owner of this friend group
       const isOwner = await storage.isFriendGroupOwner(req.params.groupId, req.user!.user_id);
       if (!isOwner) {
         return res.status(403).json({ message: "Only the circle owner can delete it" });
@@ -843,7 +875,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         is_public: req.body.is_public
       });
       
-      // Auto-join the creator to the group
       await storage.joinGroup(group.group_id, req.user!.user_id, 'creator');
       
       res.status(201).json(group);
@@ -927,7 +958,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/friends/request", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req.user! as User).user_id;
+      const userId = req.user!.user_id;
       const { friend_id } = req.body;
       
       if (!friend_id) {
@@ -936,7 +967,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       await storage.sendFriendRequest(userId, friend_id);
       
-      // Create notification for the recipient
       await createUserNotification(
         friend_id, 
         userId, 
@@ -954,7 +984,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/friends/accept", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req.user! as User).user_id;
+      const userId = req.user!.user_id;
       const { friend_id } = req.body;
       
       if (!friend_id) {
@@ -963,7 +993,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       await storage.acceptFriendRequest(userId, friend_id);
       
-      // Create notification for the other user
       await createUserNotification(
         friend_id, 
         userId, 
@@ -1004,20 +1033,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.params.userId;
       
-      // If querying self, use the authenticated user
       if (userId === "me" || userId === req.user?.user_id) {
         const { password, ...userWithoutPassword } = req.user!;
         return res.status(200).json(userWithoutPassword);
       }
       
-      // Otherwise, fetch the requested user
       const user = await storage.getUser(userId);
       
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
       
-      // Don't expose password
       const { password, ...userWithoutPassword } = user;
       
       res.status(200).json(userWithoutPassword);
@@ -1033,20 +1059,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const targetUserId = userId === "me" ? req.user!.user_id : userId;
       const currentUserId = req.user!.user_id;
       
-      // Pass the current user's ID to respect privacy settings
       const posts = await storage.getPostsByUser(targetUserId, currentUserId);
       
-      // Enhance posts with author data
       const enhancedPosts = await Promise.all(posts.map(async (post) => {
         const author = await storage.getUser(post.author_user_id);
         
-        // Get shadow session data if this is a shadow session post
         let shadowSession = null;
         if (post.is_shadow_session) {
           shadowSession = await storage.getShadowSession(post.post_id);
         }
         
-        // Don't expose password in author data
         const { password, ...authorWithoutPassword } = author;
         
         return {
@@ -1068,14 +1090,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.params.userId;
       
-      // Only allow users to update their own profile
       if (userId !== req.user?.user_id) {
         return res.status(403).json({ message: "You can only update your own profile" });
       }
       
       const { display_name, bio } = req.body;
       
-      // Update the profile
       const updatedProfile = await storage.updateProfile(userId, {
         display_name, 
         bio
@@ -1092,24 +1112,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.params.userId;
       
-      // Only allow users to update their own avatar
       if (userId !== req.user?.user_id) {
         return res.status(403).json({ message: "You can only update your own avatar" });
       }
       
-      // Check if a file was uploaded
       if (!req.file) {
         return res.status(400).json({ message: "No avatar file provided" });
       }
       
-      // Upload the avatar to Supabase
       const avatarUrl = await storage.uploadUserAvatar(
         req.file.path,
         req.file.originalname,
         userId
       );
       
-      // Update the profile with the new avatar URL
       const updatedProfile = await storage.updateProfile(userId, {
         avatar_url: avatarUrl
       });
@@ -1123,13 +1139,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Notification routes
   app.get('/api/notifications', isAuthenticated, async (req, res) => {
     try {
-      const user = req.user! as User;
+      const user_id = req.user!.user_id;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
       const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
       
-      const notifications = await storage.getUserNotifications(user.user_id, limit, offset);
+      const notifications = await storage.getUserNotifications(user_id, limit, offset);
       
-      // Get unread count for the badge
       const unreadCount = notifications.filter(n => !n.is_read).length;
       
       res.json({
@@ -1157,9 +1172,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/notifications/read-all', isAuthenticated, async (req, res) => {
     try {
-      const user = req.user! as User;
+      const user_id = req.user!.user_id;
       
-      await storage.markAllNotificationsAsRead(user.user_id);
+      await storage.markAllNotificationsAsRead(user_id);
       
       res.json({ success: true });
     } catch (error) {
@@ -1187,7 +1202,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { postId } = req.params;
       const userId = req.user!.user_id;
       
-      // First check if the user can access this post
       const post = await storage.getPostById(postId, userId);
       if (!post) {
         return res.status(404).json({ error: 'Post not found or you do not have permission to access it' });
@@ -1206,7 +1220,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { postId } = req.params;
     console.log(`Received DELETE request for post ${postId}`);
     
-    // Check for authenticated user
     if (!req.user) {
       console.error(`Authentication failed for deleting post ${postId}`);
       return res.status(401).json({ message: "Not authenticated" });
@@ -1216,7 +1229,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.user_id;
       console.log(`User ${userId} attempting to delete post ${postId}`);
       
-      // Use storage.deletePost which has proper privacy checks
       await storage.deletePost(postId, userId);
       
       console.log(`Successfully deleted post ${postId}`);
@@ -1224,7 +1236,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error(`Error deleting post ${postId}:`, err);
       
-      // Handle specific errors
       if (err instanceof Error) {
         if (err.message === "Post not found") {
           return res.status(404).json({ message: "Post not found" });
@@ -1242,7 +1253,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const { postId } = req.params;
     console.log(`Received POST delete request for post ${postId}`);
     
-    // Check authentication
     if (!req.user) {
       console.error(`Authentication failed for deleting post ${postId}`);
       return res.status(401).json({ message: "Not authenticated" });
@@ -1252,12 +1262,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.user_id;
       console.log(`User ${userId} attempting to delete post ${postId} via POST`);
       
-      // Use storage.deletePost which has proper privacy checks
       await storage.deletePost(postId, userId);
       
       console.log(`Successfully deleted post ${postId} via POST endpoint`);
       
-      // Return success JSON response
       return res.status(200).json({
         success: true,
         message: "Post deleted successfully"
@@ -1265,7 +1273,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error(`Error deleting post ${postId}:`, err);
       
-      // Handle specific errors
       if (err instanceof Error) {
         if (err.message === "Post not found") {
           return res.status(404).json({ message: "Post not found" });
@@ -1286,13 +1293,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const groupId = req.params.groupId;
       
-      // First check if the group exists
       const group = await storage.getGroupById(groupId);
       if (!group) {
         return res.status(404).json({ message: "Group not found" });
       }
       
-      // Then get the members
       const members = await storage.getGroupMembers(groupId);
       res.json(members);
     } catch (err) {

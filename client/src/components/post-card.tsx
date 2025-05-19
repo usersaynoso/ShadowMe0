@@ -62,6 +62,8 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
   const [showCommentSection, setShowCommentSection] = useState(false);
+  const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
 
   // Get comments for this post - use full API URL path in the queryKey
   const { data: comments = [], refetch: refetchComments } = useQuery<Comment[]>({
@@ -223,6 +225,30 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
     }
   };
 
+  // Add reply mutation (to be implemented next)
+  const addReplyMutation = useMutation({
+    mutationFn: async ({ commentId, body }: { commentId: string; body: string }) => {
+      // The new endpoint for replies
+      return apiRequest('POST', `/api/comments/${commentId}/replies`, { body });
+    },
+    onSuccess: async () => {
+      await refetchComments();
+      queryClient.invalidateQueries({ queryKey: ['/api/posts'] }); // Invalidate posts to update comment counts potentially
+      setReplyText("");
+      setReplyingToCommentId(null);
+      toast({ title: "Reply posted" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to post reply.", variant: "destructive" });
+    }
+  });
+
+  const handleAddReply = (commentId: string) => {
+    if (replyText.trim()) {
+      addReplyMutation.mutate({ commentId, body: replyText });
+    }
+  };
+
   // Get audience icon
   const getAudienceIcon = () => {
     switch (post.audience) {
@@ -254,8 +280,48 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 
+  // Structure comments into a nested map for rendering replies
+  const commentsById = useMemo(() => {
+    const map: Record<string, Comment> = {};
+    comments.forEach(comment => {
+      map[comment.comment_id] = comment;
+    });
+    return map;
+  }, [comments]);
+
+  const nestedComments = useMemo(() => {
+    const topLevelComments: Comment[] = [];
+    const repliesMap: Record<string, Comment[]> = {};
+
+    // Prioritize sorting before nesting
+    const currentSortedComments = [...comments].sort((a, b) => 
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime() // oldest first for parent-child ordering
+    );
+
+    currentSortedComments.forEach(comment => {
+      if (comment.parent_comment_id) {
+        if (!repliesMap[comment.parent_comment_id]) {
+          repliesMap[comment.parent_comment_id] = [];
+        }
+        repliesMap[comment.parent_comment_id].push(comment);
+      } else {
+        topLevelComments.push(comment);
+      }
+    });
+    // Sort top-level comments by most recent
+    topLevelComments.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    // Sort replies by oldest first (or keep API order if it is already chronological for replies)
+    Object.values(repliesMap).forEach(replyList => replyList.sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
+
+
+    return { topLevelComments, repliesMap };
+  }, [comments]);
+
   // Get comments to display based on showAllComments state
-  const commentsToDisplay = showAllComments ? sortedComments : sortedComments.slice(0, 1);
+  // This will now use nestedComments for rendering
+  const commentsToDisplay = showAllComments 
+    ? nestedComments.topLevelComments 
+    : nestedComments.topLevelComments.slice(0, 1);
 
   // Delete post mutation
   const deletePostMutation = useMutation({
@@ -631,13 +697,95 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
                             {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
                           </span>
                         </div>
-                        <p className="text-xs mt-1 break-words break-all whitespace-pre-line">{comment.body}</p>
+                        <div className="flex items-baseline mt-1">
+                          <p className="text-xs break-words break-all whitespace-pre-line mr-2">{comment.body}</p>
+                          <Button 
+                            variant="link" 
+                            size="sm" 
+                            className="h-auto p-0 text-xs shrink-0"
+                            onClick={() => setReplyingToCommentId(replyingToCommentId === comment.comment_id ? null : comment.comment_id)}
+                          >
+                            Reply
+                          </Button>
+                        </div>
                       </div>
+                      {/* Render Replies for this comment */}
+                      {(nestedComments.repliesMap[comment.comment_id] || []).map(reply => (
+                        <div key={reply.comment_id} className="flex items-start space-x-3 mt-2 ml-8"> {/* Indent replies */}
+                          <AvatarWithRing 
+                            user={reply.author}
+                            size="sm"
+                          />
+                          <div className="flex-1">
+                            <div className="bg-white dark:bg-gray-800 rounded-lg px-3 py-1.5 shadow-sm">
+                              <div className="flex justify-between items-center">
+                                <h4 className="font-medium text-xs">{reply.author.profile?.display_name}</h4>
+                                <span className="text-xs text-gray-500">
+                                  {formatDistanceToNow(new Date(reply.created_at), { addSuffix: true })}
+                                </span>
+                              </div>
+                              <div className="flex items-baseline mt-0.5">
+                                <p className="text-xs break-words break-all whitespace-pre-line mr-2">{reply.body}</p>
+                                <Button 
+                                  variant="link" 
+                                  size="sm" 
+                                  className="h-auto p-0 text-xs shrink-0"
+                                  onClick={() => setReplyingToCommentId(replyingToCommentId === reply.comment_id ? null : reply.comment_id)}
+                                >
+                                  Reply
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                       
-                      <div className="flex mt-1 ml-1 space-x-2 text-xs text-gray-500">
-                        <Button variant="link" size="sm" className="h-auto p-0 text-xs">Like</Button>
-                        <Button variant="link" size="sm" className="h-auto p-0 text-xs">Reply</Button>
-                      </div>
+                      {/* Reply Input Form */}
+                      {replyingToCommentId === comment.comment_id && (
+                        <div className="mt-2 ml-8 flex items-center space-x-2">
+                          <AvatarWithRing user={user!} size="sm" />
+                          <Input
+                            type="text"
+                            className="w-full rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 px-3 py-1.5 text-xs"
+                            placeholder={`Replying to ${comment.author.profile?.display_name}...`}
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddReply(comment.comment_id)}
+                          />
+                          <Button 
+                            size="sm"
+                            className="px-3 py-1.5 text-xs"
+                            onClick={() => handleAddReply(comment.comment_id)}
+                            disabled={!replyText.trim() || addReplyMutation.isPending}
+                          >
+                            Post Reply
+                          </Button>
+                        </div>
+                      )}
+                       {/* Reply Input Form for a reply (nested reply) - similar logic */}
+                      {(nestedComments.repliesMap[comment.comment_id] || []).map(reply => (
+                        replyingToCommentId === reply.comment_id && (
+                          <div key={`reply-input-${reply.comment_id}`} className="mt-2 ml-16 flex items-center space-x-2"> {/* Further indent reply input for a reply*/}
+                            <AvatarWithRing user={user!} size="sm" />
+                            <Input
+                              type="text"
+                              className="w-full rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 px-3 py-1.5 text-xs"
+                              placeholder={`Replying to ${reply.author.profile?.display_name}...`}
+                              value={replyText} // This needs to be specific to this reply context or manage multiple reply inputs
+                              onChange={(e) => setReplyText(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleAddReply(reply.comment_id)}
+                            />
+                            <Button 
+                              size="sm"
+                              className="px-3 py-1.5 text-xs"
+                              onClick={() => handleAddReply(reply.comment_id)}
+                              disabled={!replyText.trim() || addReplyMutation.isPending}
+                            >
+                              Post Reply
+                            </Button>
+                          </div>
+                        )
+                      ))}
                     </div>
                   </div>
                 ))}
