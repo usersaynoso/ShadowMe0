@@ -5,7 +5,7 @@ export interface User {
   user_id: string;
   email: string;
   user_type: string;
-  user_points: number;
+  user_points: string;
   user_level: number;
   is_active: boolean;
   created_at: string;
@@ -122,6 +122,30 @@ export interface ShadowSession {
   creator?: User;
   post?: Post;
 }
+
+// Reaction Types
+export type ReactionType = 
+  | 'sending_love'
+  | 'thank_you'
+  | 'take_care'
+  | 'here_for_you'
+  | 'made_my_day';
+
+export interface Reaction {
+  reaction_id: number; // Assuming reaction_id is a number (bigserial)
+  post_id: string;
+  user_id: string;
+  reaction_type: ReactionType;
+  created_at: string;
+}
+
+export const REACTION_OPTIONS: { type: ReactionType; label: string; icon?: string }[] = [
+  { type: 'sending_love', label: 'Sending Love', icon: 'Heart' }, 
+  { type: 'thank_you', label: 'Thank You', icon: 'Handshake' }, 
+  { type: 'take_care', label: 'Take Care', icon: 'ShieldCheck' }, 
+  { type: 'here_for_you', label: 'Here For You', icon: 'HelpingHand' }, 
+  { type: 'made_my_day', label: 'Made My Day', icon: 'Smile' }, 
+];
 
 // Chat Types
 export interface ChatRoom {

@@ -10,7 +10,13 @@ export const sessionPrivacyEnum = pgEnum('session_privacy_enum', ['one_to_one', 
 export const postParentEnum = pgEnum('post_parent_enum', ['profile', 'friend_group', 'group']);
 export const audienceEnum = pgEnum('audience_enum', ['everyone', 'friends', 'just_me', 'friend_group', 'group']);
 export const messageTypeEnum = pgEnum('message_type_enum', ['text', 'emoji', 'file']);
-export const reactionTypeEnum = pgEnum('reaction_type_enum', ['like', 'love', 'laugh', 'care', 'wow', 'sad', 'angry', 'emoji']);
+export const reactionTypeEnum = pgEnum('reaction_type_enum', [
+  'sending_love',
+  'thank_you',
+  'take_care',
+  'here_for_you',
+  'made_my_day'
+]);
 export const eventTypeEnum = pgEnum('event_type_enum', ['friendship_accepted', 'message_sent', 'shadow_session_created', 'post_created', 'post_liked', 'post_commented', 'friendship_request', 'shadow_session_reminder', 'group_invite', 'friend_group_invite']);
 
 // Define Tables
@@ -183,7 +189,7 @@ export const post_reactions = pgTable('post_reactions', {
   reaction_id: bigserial('reaction_id', { mode: 'number' }).primaryKey(),
   post_id: uuid('post_id').references(() => posts.post_id, { onDelete: 'cascade' }),
   user_id: uuid('user_id').references(() => users.user_id),
-  reaction_type: reactionTypeEnum('reaction_type').default('like'),
+  reaction_type: reactionTypeEnum('reaction_type').notNull(),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow()
 }, (table) => {
   return {

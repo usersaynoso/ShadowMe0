@@ -1,4 +1,4 @@
-import { FC, useState, useEffect } from "react";
+import { FC, useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardFooter } from "@/components/ui/card";
 import { AvatarWithEmotion } from "@/components/ui/avatar-with-emotion";
 import { AvatarWithRing } from "@/components/ui/avatar-with-ring";
@@ -23,9 +23,14 @@ import {
   Trash2,
   Flag,
   Copy,
-  Link
+  Link,
+  Check,
+  Handshake,
+  ShieldCheck,
+  HelpingHand,
+  Smile
 } from "lucide-react";
-import { Post, Comment, User, Emotion } from "@/types";
+import { Post, Comment, User, Emotion, Reaction, ReactionType, REACTION_OPTIONS } from "@/types";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -34,6 +39,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -50,12 +56,12 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
   const { toast } = useToast();
   const [commentText, setCommentText] = useState("");
   const [showAllComments, setShowAllComments] = useState(false);
-  const [isLiked, setIsLiked] = useState(false);
-  const [localReactionId, setLocalReactionId] = useState<number | null>(null);
+  const [currentUserReaction, setCurrentUserReaction] = useState<Reaction | null>(null);
   const [localReactionCount, setLocalReactionCount] = useState(post.reactions_count || 0);
   const [isVisible, setIsVisible] = useState(true);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
+  const [showCommentSection, setShowCommentSection] = useState(false);
 
   // Get comments for this post - use full API URL path in the queryKey
   const { data: comments = [], refetch: refetchComments } = useQuery<Comment[]>({
@@ -64,62 +70,134 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
   });
 
   // Check if current user has liked this post
-  const { data: userReaction } = useQuery({
+  const { data: userReactionData, refetch: refetchUserReaction } = useQuery<Reaction | null>({
     queryKey: [`/api/posts/${post.post_id}/reaction/${user?.user_id}`],
     enabled: !!user?.user_id && !!post.post_id,
   });
 
-  // Update local state when userReaction data changes
+  // Update local state when userReactionData changes
   useEffect(() => {
-    if (userReaction && typeof userReaction === 'object' && 'reaction_id' in userReaction) {
-      setIsLiked(true);
-      setLocalReactionId(userReaction.reaction_id as number);
+    if (userReactionData && userReactionData.reaction_id) {
+      setCurrentUserReaction(userReactionData);
+      // Ensure localReactionCount reflects an existing reaction if not already counted by post.reactions_count
+      // This logic might need refinement based on how post.reactions_count is updated server-side after a reaction.
     } else {
-      setIsLiked(false);
-      setLocalReactionId(null);
+      setCurrentUserReaction(null);
     }
-  }, [userReaction]);
+  }, [userReactionData]);
+
+  // Memoize reaction options with actual icons
+  const reactionOptionsWithIcons = useMemo(() => {
+    return REACTION_OPTIONS.map(opt => {
+      let IconComponent = Layers; // Default icon for safety, can be any sensible default
+      switch (opt.icon) {
+        case 'Heart': IconComponent = Heart; break;
+        case 'Handshake': IconComponent = Handshake; break;
+        case 'ShieldCheck': IconComponent = ShieldCheck; break;
+        case 'HelpingHand': IconComponent = HelpingHand; break;
+        case 'Smile': IconComponent = Smile; break;
+        // Default case will use Layers icon
+      }
+      return { ...opt, IconComponent }; 
+    });
+  }, []);
 
   // Like/unlike post mutation
-  const toggleLikeMutation = useMutation({
-    mutationFn: async () => {
-      if (isLiked) {
-        // Optimistically update UI
-        setIsLiked(false);
-        setLocalReactionCount(prev => Math.max(0, prev - 1));
-        
-        // Make API call
-        return apiRequest('DELETE', `/api/posts/${post.post_id}/reactions/${localReactionId}`);
-      } else {
-        // Optimistically update UI
-        setIsLiked(true);
+  const submitReactionMutation = useMutation<
+    Reaction, // Expected response type
+    Error,
+    { reactionType: ReactionType } // Variables type
+  >({
+    mutationFn: async ({ reactionType }) => {
+      const oldReaction = currentUserReaction;
+      // Optimistic Update
+      const optimisticReaction: Reaction = {
+        reaction_id: oldReaction?.reaction_id || Date.now(), // Temporary ID if new reaction
+        post_id: post.post_id,
+        user_id: user!.user_id, // Assuming user is always defined here due to component logic/auth
+        reaction_type: reactionType,
+        created_at: new Date().toISOString(),
+      };
+      setCurrentUserReaction(optimisticReaction);
+      if (!oldReaction) {
         setLocalReactionCount(prev => prev + 1);
-        
-        // Make API call
+      } // If reaction type is just changing, count remains same until server confirm
+
+      try {
         const response = await apiRequest('POST', `/api/posts/${post.post_id}/reactions`, {
-          reaction_type: 'like'
+          reaction_type: reactionType
         });
-        
-        // Store the new reaction ID
-        if (response && typeof response === 'object' && 'reaction_id' in response) {
-          setLocalReactionId(response.reaction_id as number);
+        // apiRequest returns a Response object, so we need to .json() it
+        const newReactionData = await response.json(); 
+        return newReactionData as Reaction; // Assert the type of the JSON data
+      } catch (error) {
+        // Revert optimistic update on actual API error
+        setCurrentUserReaction(oldReaction);
+        if (!oldReaction) {
+          setLocalReactionCount(prev => Math.max(0, prev - 1));
         }
-        
-        return response;
+        throw error; // Re-throw to be caught by mutation's onError
       }
     },
+    onSuccess: (data) => { // data here is the actual Reaction object from the server
+      setCurrentUserReaction(data);
+      // Invalidate queries to refetch fresh data
+      queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}/reaction/${user?.user_id}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}`] }); // For post details like reaction count
+      queryClient.invalidateQueries({ queryKey: ['/api/posts'] }); // For overall feed
+      // No need to manually refetchUserReaction, invalidation handles it.
+      // Also, refetch the comments if the reaction might influence comment display or count indirectly.
+      // refetchComments(); // Uncomment if necessary
+    },
     onError: () => {
-      // Revert optimistic updates if the API call fails
-      setIsLiked(!isLiked);
-      setLocalReactionCount(prev => isLiked ? prev + 1 : Math.max(0, prev - 1));
+      toast({ title: "Error", description: "Failed to submit reaction.", variant: "destructive" });
+      // Reversion is handled in mutationFn's catch block for optimistic updates
+    }
+  });
+
+  const deleteReactionMutation = useMutation<void, Error, void>({
+    mutationFn: async () => {
+      if (!currentUserReaction) return;
+      const oldReaction = currentUserReaction;
+      setCurrentUserReaction(null);
+      setLocalReactionCount(prev => Math.max(0, prev - 1));
+
+      try {
+        await apiRequest('DELETE', `/api/posts/${post.post_id}/reactions/${oldReaction.reaction_id}`);
+      } catch (error) {
+        setCurrentUserReaction(oldReaction);
+        setLocalReactionCount(prev => prev + 1);
+        throw error;
+      }
     },
     onSuccess: () => {
-      // Invalidate relevant queries
+      setCurrentUserReaction(null);
       queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}/reaction/${user?.user_id}`] });
       queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
       queryClient.invalidateQueries({ queryKey: [`/api/posts/${post.post_id}`] });
+      refetchUserReaction();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to remove reaction.", variant: "destructive" });
     }
   });
+
+  const handleReactionSelect = (reactionType: ReactionType) => {
+    if (currentUserReaction?.reaction_type === reactionType) {
+      // User clicked the same reaction again, so delete it
+      deleteReactionMutation.mutate();
+    } else {
+      // User selected a new reaction or changed reaction
+      submitReactionMutation.mutate({ reactionType });
+    }
+  };
+
+  // To render the current reaction icon (if any)
+  const CurrentReactionIcon = useMemo(() => {
+    if (!currentUserReaction) return null;
+    const option = reactionOptionsWithIcons.find(opt => opt.type === currentUserReaction.reaction_type);
+    return option ? option.IconComponent : null;
+  }, [currentUserReaction, reactionOptionsWithIcons]);
 
   // Add comment mutation
   const addCommentMutation = useMutation({
@@ -344,6 +422,14 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
     return null;
   }
 
+  const handleToggleCommentSection = () => {
+    setShowCommentSection(prev => !prev);
+    // Optionally, refetch comments when opening the section if they might be stale
+    // if (!showCommentSection) {
+    //   refetchComments();
+    // }
+  };
+
   return (
     <>
       <CreatePostDialog
@@ -453,120 +539,133 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
           )}
         </CardContent>
         
-        <CardFooter className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
-          <div className="flex space-x-4">
-            <Button 
-              variant="ghost"
-              size="sm"
-              className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
-              onClick={() => toggleLikeMutation.mutate()}
-            >
-              {isLiked ? (
-                <Heart className="mr-1.5 h-4 w-4 fill-red-500 text-red-500" />
-              ) : (
-                <Heart className="mr-1.5 h-4 w-4" />
-              )}
-              <span className="text-xs">{localReactionCount}</span>
-            </Button>
+        <CardFooter className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 flex justify-start items-center">
+          <div className="flex space-x-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="ghost"
+                  size="sm"
+                  className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
+                >
+                  {CurrentReactionIcon ? (
+                    <CurrentReactionIcon className="mr-1.5 h-4 w-4 text-primary-500" /> // Example styling
+                  ) : (
+                    <Heart className="mr-1.5 h-4 w-4" /> // Default if no reaction or for placeholder
+                  )}
+                  <span className="text-xs">Reactions {localReactionCount > 0 ? `(${localReactionCount})` : ''}</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuLabel>React</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {reactionOptionsWithIcons.map((option) => (
+                  <DropdownMenuItem key={option.type} onClick={() => handleReactionSelect(option.type)} className="cursor-pointer">
+                    <option.IconComponent className="mr-2 h-4 w-4" />
+                    <span>{option.label}</span>
+                    {currentUserReaction?.reaction_type === option.type && (
+                      <Check className="ml-auto h-4 w-4 text-primary-500" /> // Indicate current selection
+                    )}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             
             <Button 
               variant="ghost"
               size="sm"
               className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
+              onClick={handleToggleCommentSection}
             >
               <MessageCircle className="mr-1.5 h-4 w-4" />
-              <span className="text-xs">{comments.length || 0}</span>
+              <span className="text-xs">Comments {comments.length > 0 ? `(${comments.length})` : ''}</span>
             </Button>
           </div>
-          
-          <Button 
-            variant="ghost"
-            size="sm"
-            className="text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
-          >
-            <Bookmark className="h-4 w-4" />
-          </Button>
         </CardFooter>
         
-        {comments.length > 0 && (
-          <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
-            {commentsToDisplay.map(comment => (
-              <div key={comment.comment_id} className="flex items-start space-x-3 mb-3">
+        {showCommentSection && (
+          <>
+            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
+              <div className="flex items-center space-x-3">
                 <AvatarWithRing 
-                  user={comment.author}
+                  user={user!}
                   size="sm"
                 />
                 
-                <div className="flex-1">
-                  <div className="bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow-sm">
-                    <div className="flex justify-between items-center">
-                      <h4 className="font-medium text-xs">{comment.author.profile?.display_name}</h4>
-                      <span className="text-xs text-gray-500">
-                        {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
-                      </span>
-                    </div>
-                    <p className="text-xs mt-1 break-words break-all whitespace-pre-line">{comment.body}</p>
-                  </div>
-                  
-                  <div className="flex mt-1 ml-1 space-x-2 text-xs text-gray-500">
-                    <Button variant="link" size="sm" className="h-auto p-0 text-xs">Like</Button>
-                    <Button variant="link" size="sm" className="h-auto p-0 text-xs">Reply</Button>
-                  </div>
+                <div className="flex-1 relative">
+                  <Input
+                    type="text"
+                    className="w-full rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm"
+                    placeholder="Write a comment..."
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
+                  />
+                  <Button 
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-primary-600 dark:text-primary-400"
+                    onClick={handleAddComment}
+                    disabled={!commentText.trim() || addCommentMutation.isPending}
+                  >
+                    <Layers className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
-            ))}
-            
-            {comments.length > 1 && (
-              <Button
-                variant="ghost" 
-                size="sm"
-                className="w-full mt-1 text-xs font-medium text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 flex items-center justify-center"
-                onClick={() => setShowAllComments(!showAllComments)}
-              >
-                {showAllComments ? (
-                  <>
-                    <ChevronUp className="mr-1 h-4 w-4" />
-                    Show less
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="mr-1 h-4 w-4" />
-                    View all {comments.length} comments
-                  </>
-                )}
-              </Button>
-            )}
-          </div>
-        )}
-        
-        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
-          <div className="flex items-center space-x-3">
-            <AvatarWithRing 
-              user={user!}
-              size="sm"
-            />
-            
-            <div className="flex-1 relative">
-              <Input
-                type="text"
-                className="w-full rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 px-4 py-2 text-sm"
-                placeholder="Write a comment..."
-                value={commentText}
-                onChange={(e) => setCommentText(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
-              />
-              <Button 
-                variant="ghost"
-                size="sm"
-                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-primary-600 dark:text-primary-400"
-                onClick={handleAddComment}
-                disabled={!commentText.trim() || addCommentMutation.isPending}
-              >
-                <Layers className="h-4 w-4" />
-              </Button>
             </div>
-          </div>
-        </div>
+
+            {comments.length > 0 && (
+              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/30 border-t border-gray-100 dark:border-gray-700">
+                {commentsToDisplay.map(comment => (
+                  <div key={comment.comment_id} className="flex items-start space-x-3 mb-3">
+                    <AvatarWithRing 
+                      user={comment.author}
+                      size="sm"
+                    />
+                    
+                    <div className="flex-1">
+                      <div className="bg-white dark:bg-gray-800 rounded-lg px-3 py-2 shadow-sm">
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-medium text-xs">{comment.author.profile?.display_name}</h4>
+                          <span className="text-xs text-gray-500">
+                            {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true })}
+                          </span>
+                        </div>
+                        <p className="text-xs mt-1 break-words break-all whitespace-pre-line">{comment.body}</p>
+                      </div>
+                      
+                      <div className="flex mt-1 ml-1 space-x-2 text-xs text-gray-500">
+                        <Button variant="link" size="sm" className="h-auto p-0 text-xs">Like</Button>
+                        <Button variant="link" size="sm" className="h-auto p-0 text-xs">Reply</Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                
+                {comments.length > 1 && (
+                  <Button
+                    variant="ghost" 
+                    size="sm"
+                    className="w-full mt-1 text-xs font-medium text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 flex items-center justify-center"
+                    onClick={() => setShowAllComments(!showAllComments)}
+                  >
+                    {showAllComments ? (
+                      <>
+                        <ChevronUp className="mr-1 h-4 w-4" />
+                        Show less
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="mr-1 h-4 w-4" />
+                        View all {comments.length} comments
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+            )}
+          </>
+        )}
       </Card>
     </>
   );

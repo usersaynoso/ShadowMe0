@@ -5,7 +5,7 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { setupWebSockets } from "./websocket";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
-import { posts, User } from "../shared/schema";
+import { posts, User, reactionTypeEnum } from "../shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -52,7 +52,7 @@ async function createUserNotification(
 ) {
   try {
     await storage.createNotification({
-      recipient_user_id: recipientId,
+      user_id: recipientId,
       sender_user_id: senderId,
       type: type as any,
       content,
@@ -82,7 +82,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[DEBUG] Response status: ${res.statusCode}`);
         console.log(`[DEBUG] Response headers:`, res.getHeaders());
         console.log(`[DEBUG] Response body:`, typeof body === 'string' ? body.substring(0, 100) + '...' : '[Object]');
-        return originalSend.apply(res, arguments);
+        return originalSend.call(res, body);
       };
     }
     next();
@@ -310,7 +310,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/posts/:postId/comments", isAuthenticated, async (req, res) => {
     try {
       const { postId } = req.params;
-      const user = req.user as User;
+      const user = req.user! as User;
       
       // Get the post to check audience, passing the current user ID
       const post = await storage.getPostById(postId, user.user_id);
@@ -328,7 +328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/posts/:postId/comments", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as User;
+      const user = req.user! as User;
       const { postId } = req.params;
       const { body, parent_comment_id } = req.body;
       
@@ -384,7 +384,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/posts/:postId/reaction/:userId", isAuthenticated, async (req, res) => {
     try {
       const { postId, userId } = req.params;
-      const requestingUser = req.user as User;
+      const requestingUser = req.user! as User;
       
       // Get the post to check audience, passing the current user ID
       const post = await storage.getPostById(postId, requestingUser.user_id);
@@ -402,12 +402,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/posts/:postId/reactions", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as User;
+      const user = req.user! as User;
       const { postId } = req.params;
       const { reaction_type } = req.body;
       
       if (!reaction_type) {
         return res.status(400).json({ error: 'Reaction type is required' });
+      }
+      
+      // Validate reaction_type against the enum values from shared/schema.ts
+      if (!reactionTypeEnum.enumValues.includes(reaction_type)) {
+        return res.status(400).json({ 
+          error: 'Invalid reaction type',
+          message: `Allowed types are: ${reactionTypeEnum.enumValues.join(', ')}` 
+        });
       }
       
       // Get the post to check author and notify them, passing the current user ID
@@ -442,7 +450,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/posts/:postId/reactions/:reactionId", isAuthenticated, async (req, res) => {
     try {
-      await storage.deleteReaction(req.params.reactionId, req.user.user_id);
+      await storage.deleteReaction(req.params.reactionId, req.user!.user_id);
       res.status(204).send();
     } catch (err) {
       console.error("Failed to delete reaction:", err);
@@ -473,7 +481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/shadow-sessions/joined", isAuthenticated, async (req, res) => {
     try {
-      const sessions = await storage.getUserJoinedShadowSessions(req.user.user_id);
+      const sessions = await storage.getUserJoinedShadowSessions(req.user!.user_id);
       res.json(sessions);
     } catch (err) {
       console.error("Failed to get joined sessions:", err);
@@ -493,7 +501,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/shadow-sessions/:sessionId/join", isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as User;
+      const user = req.user! as User;
       const { sessionId } = req.params;
       
       // Check if session exists
@@ -828,7 +836,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/groups", isAuthenticated, async (req, res) => {
     try {
       const group = await storage.createGroup({
-        creator_user_id: req.user.user_id,
+        creator_user_id: req.user!.user_id,
         name: req.body.name,
         description: req.body.description,
         topic_tag: req.body.topic_tag,
@@ -836,7 +844,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       // Auto-join the creator to the group
-      await storage.joinGroup(group.group_id, req.user.user_id, 'creator');
+      await storage.joinGroup(group.group_id, req.user!.user_id, 'creator');
       
       res.status(201).json(group);
     } catch (err) {
@@ -847,7 +855,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/groups/:groupId/join", isAuthenticated, async (req, res) => {
     try {
-      await storage.joinGroup(req.params.groupId, req.user.user_id);
+      await storage.joinGroup(req.params.groupId, req.user!.user_id);
       res.status(200).json({ message: "Joined group successfully" });
     } catch (err) {
       console.error("Failed to join group:", err);
@@ -857,7 +865,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/groups/:groupId/member", isAuthenticated, async (req, res) => {
     try {
-      await storage.leaveGroup(req.params.groupId, req.user.user_id);
+      await storage.leaveGroup(req.params.groupId, req.user!.user_id);
       res.status(204).send();
     } catch (err) {
       console.error("Failed to leave group:", err);
@@ -868,7 +876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Friends (Connections)
   app.get("/api/user/connections", isAuthenticated, async (req, res) => {
     try {
-      const connections = await storage.getUserConnections(req.user.user_id);
+      const connections = await storage.getUserConnections(req.user!.user_id);
       res.json(connections);
     } catch (err) {
       console.error("Failed to get connections:", err);
@@ -879,7 +887,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/user/connection-status/:userId", isAuthenticated, async (req, res) => {
     try {
       const targetUserId = req.params.userId;
-      const status = await storage.getConnectionStatus(req.user.user_id, targetUserId);
+      const status = await storage.getConnectionStatus(req.user!.user_id, targetUserId);
       res.json({ status });
     } catch (err) {
       console.error("Failed to get connection status:", err);
@@ -889,7 +897,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/user/connections/pending", isAuthenticated, async (req, res) => {
     try {
-      const pendingRequests = await storage.getPendingConnectionRequests(req.user.user_id);
+      const pendingRequests = await storage.getPendingConnectionRequests(req.user!.user_id);
       res.json(pendingRequests);
     } catch (err) {
       console.error("Failed to get pending requests:", err);
@@ -899,7 +907,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/user/connections/online", isAuthenticated, async (req, res) => {
     try {
-      const onlineConnections = await storage.getOnlineConnections(req.user.user_id);
+      const onlineConnections = await storage.getOnlineConnections(req.user!.user_id);
       res.json(onlineConnections);
     } catch (err) {
       console.error("Failed to get online connections:", err);
@@ -909,7 +917,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/user/connection-suggestions", isAuthenticated, async (req, res) => {
     try {
-      const suggestions = await storage.getConnectionSuggestions(req.user.user_id);
+      const suggestions = await storage.getConnectionSuggestions(req.user!.user_id);
       res.json(suggestions);
     } catch (err) {
       console.error("Failed to get connection suggestions:", err);
@@ -919,7 +927,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/friends/request", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req.user as User).user_id;
+      const userId = (req.user! as User).user_id;
       const { friend_id } = req.body;
       
       if (!friend_id) {
@@ -946,7 +954,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/friends/accept", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req.user as User).user_id;
+      const userId = (req.user! as User).user_id;
       const { friend_id } = req.body;
       
       if (!friend_id) {
@@ -973,7 +981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/friends/request", isAuthenticated, async (req, res) => {
     try {
-      await storage.rejectFriendRequest(req.user.user_id, req.body.friend_id);
+      await storage.rejectFriendRequest(req.user!.user_id, req.body.friend_id);
       res.status(204).send();
     } catch (err) {
       console.error("Failed to reject friend request:", err);
@@ -983,7 +991,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/friends", isAuthenticated, async (req, res) => {
     try {
-      await storage.removeFriend(req.user.user_id, req.body.friend_id);
+      await storage.removeFriend(req.user!.user_id, req.body.friend_id);
       res.status(204).send();
     } catch (err) {
       console.error("Failed to remove friend:", err);
@@ -1115,7 +1123,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Notification routes
   app.get('/api/notifications', isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as User;
+      const user = req.user! as User;
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
       const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
       
@@ -1149,7 +1157,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/notifications/read-all', isAuthenticated, async (req, res) => {
     try {
-      const user = req.user as User;
+      const user = req.user! as User;
       
       await storage.markAllNotificationsAsRead(user.user_id);
       

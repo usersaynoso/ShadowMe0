@@ -3,7 +3,7 @@
 --
 
 -- Dumped from database version 15.8
--- Dumped by pg_dump version 15.12 (Homebrew)
+-- Dumped by pg_dump version 15.13 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -21,6 +21,13 @@ SET row_security = off;
 --
 
 CREATE SCHEMA auth;
+
+
+--
+-- Name: drizzle; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA drizzle;
 
 
 --
@@ -2183,6 +2190,37 @@ COMMENT ON COLUMN auth.users.is_sso_user IS 'Auth: Set this column to true when 
 
 
 --
+-- Name: __drizzle_migrations; Type: TABLE; Schema: drizzle; Owner: -
+--
+
+CREATE TABLE drizzle.__drizzle_migrations (
+    id integer NOT NULL,
+    hash text NOT NULL,
+    created_at bigint
+);
+
+
+--
+-- Name: __drizzle_migrations_id_seq; Type: SEQUENCE; Schema: drizzle; Owner: -
+--
+
+CREATE SEQUENCE drizzle.__drizzle_migrations_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: __drizzle_migrations_id_seq; Type: SEQUENCE OWNED BY; Schema: drizzle; Owner: -
+--
+
+ALTER SEQUENCE drizzle.__drizzle_migrations_id_seq OWNED BY drizzle.__drizzle_migrations.id;
+
+
+--
 -- Name: chat_room_members; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2696,6 +2734,13 @@ ALTER TABLE ONLY auth.refresh_tokens ALTER COLUMN id SET DEFAULT nextval('auth.r
 
 
 --
+-- Name: __drizzle_migrations id; Type: DEFAULT; Schema: drizzle; Owner: -
+--
+
+ALTER TABLE ONLY drizzle.__drizzle_migrations ALTER COLUMN id SET DEFAULT nextval('drizzle.__drizzle_migrations_id_seq'::regclass);
+
+
+--
 -- Name: feed_events event_id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -2906,6 +2951,14 @@ COPY auth.users (instance_id, id, aud, role, email, encrypted_password, email_co
 
 
 --
+-- Data for Name: __drizzle_migrations; Type: TABLE DATA; Schema: drizzle; Owner: -
+--
+
+COPY drizzle.__drizzle_migrations (id, hash, created_at) FROM stdin;
+\.
+
+
+--
 -- Data for Name: chat_room_members; Type: TABLE DATA; Schema: public; Owner: -
 --
 
@@ -3032,6 +3085,8 @@ COPY public.post_audience (post_id, friend_group_id) FROM stdin;
 COPY public.post_comments (comment_id, post_id, author_user_id, parent_comment_id, body, created_at, edited_at) FROM stdin;
 e7184c53-d8da-4b35-9e86-7f3c9af778bc	3544a971-8346-4421-83c7-295d03a88b6a	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	okok	2025-05-08 18:02:31.276419+00	\N
 0f9bb86f-7576-4e31-a2ee-bdd9ac2bf310	2e44be8d-bc3c-42e3-9e41-655e5119db1b	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	Go friends!	2025-05-17 17:24:21.733443+00	\N
+ca39714c-407c-48f0-8e02-0b1e770d7409	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	Yes you're not wrong	2025-05-19 17:11:57.665429+00	\N
+39dfe83a-b702-42e1-8b75-5c850105cdfa	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	okok	2025-05-19 17:12:33.949961+00	\N
 \.
 
 
@@ -3049,7 +3104,7 @@ c9de0185-d8bc-41b9-afa1-f45b613a809c	2aa5a155-b3b4-443a-91b7-823415b99c44	https:
 --
 
 COPY public.post_reactions (reaction_id, post_id, user_id, reaction_type, created_at) FROM stdin;
-12	43d036dd-81c7-4c8a-9dad-4be8a7645bac	c182f303-f6f2-41bd-9d0a-78097d627c5e	like	2025-05-17 18:23:41.805652+00
+13	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	like	2025-05-19 17:11:47.251397+00
 \.
 
 
@@ -3059,11 +3114,7 @@ COPY public.post_reactions (reaction_id, post_id, user_id, reaction_type, create
 
 COPY public.posts (post_id, author_user_id, parent_type, parent_id, audience, content, emotion_ids, created_at, updated_at) FROM stdin;
 2aa5a155-b3b4-443a-91b7-823415b99c44	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{8,2,1}	2025-05-17 17:52:02.588699+00	\N
-43d036dd-81c7-4c8a-9dad-4be8a7645bac	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{7}	2025-05-17 18:17:20.815855+00	\N
-2afde1bb-2370-493c-92d3-9374bbed712c	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	ook	{1}	2025-05-19 16:02:04.56874+00	\N
-1f83fb7c-8fc6-4700-87ff-3ca43180f244	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	kk	{2}	2025-05-19 16:11:10.238729+00	\N
-d352b0ba-9740-4054-89c1-ddeb0804e347	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{2,8,10}	2025-05-19 16:13:00.683297+00	\N
-e243552f-2ecb-45dd-af6b-410669a3a46e	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{2,8,10}	2025-05-19 16:13:18.885382+00	\N
+ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	Hello my post is here right. 	{1,8}	2025-05-19 17:07:38.174745+00	\N
 4b0efc0a-4bb2-4925-896f-aac1d315b05e	d3f1f209-1a37-49b9-b844-c701691c20dc	profile	d3f1f209-1a37-49b9-b844-c701691c20dc	just_me	Me	{1}	2025-05-08 17:57:31.011435+00	\N
 3544a971-8346-4421-83c7-295d03a88b6a	d3f1f209-1a37-49b9-b844-c701691c20dc	profile	d3f1f209-1a37-49b9-b844-c701691c20dc	just_me	\N	{12,6,3,4,5}	2025-05-08 17:59:40.901729+00	\N
 2e44be8d-bc3c-42e3-9e41-655e5119db1b	d3f1f209-1a37-49b9-b844-c701691c20dc	profile	d3f1f209-1a37-49b9-b844-c701691c20dc	friends	Friends	{4,9}	2025-05-08 18:04:52.043922+00	\N
@@ -3086,7 +3137,7 @@ a1cf89ff-dcb5-444e-aa11-fa4fee737800	c182f303-f6f2-41bd-9d0a-78097d627c5e	Chris	
 
 COPY public.session (sid, sess, expire) FROM stdin;
 eY780NDAu0kF8gpssgTURQB4PHsdJ8P7	{"cookie":{"originalMaxAge":604800000,"expires":"2025-05-24T16:41:32.858Z","secure":false,"httpOnly":true,"path":"/","sameSite":"lax"},"passport":{"user":"c182f303-f6f2-41bd-9d0a-78097d627c5e"}}	2025-05-24 16:41:33
-Ey3O_q9EFlMrXCEEHOYeZnsi3qeA5LzF	{"cookie":{"originalMaxAge":604800000,"expires":"2025-05-24T19:08:15.744Z","secure":false,"httpOnly":true,"path":"/","sameSite":"lax"},"passport":{"user":"c182f303-f6f2-41bd-9d0a-78097d627c5e"}}	2025-05-26 16:25:03
+Ey3O_q9EFlMrXCEEHOYeZnsi3qeA5LzF	{"cookie":{"originalMaxAge":604800000,"expires":"2025-05-24T19:08:15.744Z","secure":false,"httpOnly":true,"path":"/","sameSite":"lax"},"passport":{"user":"c182f303-f6f2-41bd-9d0a-78097d627c5e"}}	2025-05-26 17:21:43
 \.
 
 
@@ -3122,7 +3173,7 @@ d3f1f209-1a37-49b9-b844-c701691c20dc	digital.factoid5b@icloud.com	cc84dc88cfd8a4
 
 COPY public.users_metadata (metadata_id, user_id, last_emotions, created_at, updated_at) FROM stdin;
 16adee25-6e30-4e5e-942e-4e99984bfc30	d3f1f209-1a37-49b9-b844-c701691c20dc	[4, 9]	2025-05-08 18:04:52.304+00	2025-05-08 18:04:52.304+00
-31deb837-ae97-4623-84d7-c544b874af0c	c182f303-f6f2-41bd-9d0a-78097d627c5e	[2, 8, 10]	2025-05-08 17:26:29.371+00	2025-05-19 16:13:19.764+00
+31deb837-ae97-4623-84d7-c544b874af0c	c182f303-f6f2-41bd-9d0a-78097d627c5e	[1, 8]	2025-05-08 17:26:29.371+00	2025-05-19 17:07:38.552+00
 \.
 
 
@@ -3311,6 +3362,13 @@ SELECT pg_catalog.setval('auth.refresh_tokens_id_seq', 1, false);
 
 
 --
+-- Name: __drizzle_migrations_id_seq; Type: SEQUENCE SET; Schema: drizzle; Owner: -
+--
+
+SELECT pg_catalog.setval('drizzle.__drizzle_migrations_id_seq', 4, true);
+
+
+--
 -- Name: feed_events_event_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
@@ -3328,7 +3386,7 @@ SELECT pg_catalog.setval('public.messages_message_id_seq', 1, false);
 -- Name: post_reactions_reaction_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.post_reactions_reaction_id_seq', 12, true);
+SELECT pg_catalog.setval('public.post_reactions_reaction_id_seq', 13, true);
 
 
 --
@@ -3512,6 +3570,14 @@ ALTER TABLE ONLY auth.users
 
 ALTER TABLE ONLY auth.users
     ADD CONSTRAINT users_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: __drizzle_migrations __drizzle_migrations_pkey; Type: CONSTRAINT; Schema: drizzle; Owner: -
+--
+
+ALTER TABLE ONLY drizzle.__drizzle_migrations
+    ADD CONSTRAINT __drizzle_migrations_pkey PRIMARY KEY (id);
 
 
 --
@@ -4234,6 +4300,27 @@ CREATE INDEX idx_shadow_sessions_post_id ON public.shadow_sessions USING btree (
 --
 
 CREATE INDEX idx_shadow_sessions_starts_at ON public.shadow_sessions USING btree (starts_at);
+
+
+--
+-- Name: messages_chat_room_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX messages_chat_room_id_created_at_idx ON public.messages USING btree (chat_room_id, created_at);
+
+
+--
+-- Name: notifications_user_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX notifications_user_id_created_at_idx ON public.notifications USING btree (user_id, created_at);
+
+
+--
+-- Name: posts_author_user_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX posts_author_user_id_created_at_idx ON public.posts USING btree (author_user_id, created_at);
 
 
 --
