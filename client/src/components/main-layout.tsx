@@ -28,14 +28,14 @@ export const MainLayout: FC<MainLayoutProps> = ({
           if (showLeftSidebar && showRightSidebar && !isMobile) {
             // Both sidebars
             return (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <aside className="hidden md:block">
+              <div className="grid grid-cols-12 gap-6">
+                <aside className="hidden md:block col-span-3">
                   <LeftSidebar />
                 </aside>
-                <div className="md:col-span-1 col-span-full">
+                <div className="col-span-12 md:col-span-6">
                   {children}
                 </div>
-                <aside className="hidden lg:block">
+                <aside className="hidden lg:block col-span-3">
                   <RightSidebar />
                 </aside>
               </div>
@@ -43,11 +43,11 @@ export const MainLayout: FC<MainLayoutProps> = ({
           } else if (showLeftSidebar && !showRightSidebar && !isMobile) {
             // Only left sidebar
             return (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <aside className="hidden md:block">
+              <div className="grid grid-cols-12 gap-6">
+                <aside className="hidden md:block col-span-3">
                   <LeftSidebar />
                 </aside>
-                <div className="md:col-span-3 col-span-full">
+                <div className="col-span-12 md:col-span-9">
                   {children}
                 </div>
               </div>
@@ -55,11 +55,11 @@ export const MainLayout: FC<MainLayoutProps> = ({
           } else if (!showLeftSidebar && showRightSidebar && !isMobile) {
             // Only right sidebar
             return (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div className="md:col-span-3 col-span-full">
+              <div className="grid grid-cols-12 gap-6">
+                <div className="col-span-12 md:col-span-9">
                   {children}
                 </div>
-                <aside className="hidden lg:block">
+                <aside className="hidden lg:block col-span-3">
                   <RightSidebar />
                 </aside>
               </div>

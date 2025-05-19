@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, timestamp, boolean, integer, smallint, pgEnum, uuid, unique, foreignKey, numeric, jsonb, bigserial, bigint, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer, smallint, pgEnum, uuid, unique, foreignKey, numeric, jsonb, bigserial, bigint, primaryKey, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -126,6 +126,13 @@ export const messages = pgTable('messages', {
   message_type: messageTypeEnum('message_type').default('text'),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
   edited_at: timestamp('edited_at', { withTimezone: true })
+}, (table) => {
+  return {
+    chatRoomCreatedAtIdx: index('messages_chat_room_id_created_at_idx').on(table.chat_room_id, table.created_at),
+    // Consider adding indexes for sender_id and recipient_id if DMs are frequent
+    // senderIdCreatedAtIdx: index('messages_sender_id_created_at_idx').on(table.sender_id, table.created_at),
+    // recipientIdCreatedAtIdx: index('messages_recipient_id_created_at_idx').on(table.recipient_id, table.created_at),
+  };
 });
 
 // Emotions (emotion palette)
@@ -146,6 +153,10 @@ export const posts = pgTable('posts', {
   emotion_ids: smallint('emotion_ids').array().notNull(),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updated_at: timestamp('updated_at', { withTimezone: true })
+}, (table) => {
+  return {
+    authorCreatedAtIdx: index('posts_author_user_id_created_at_idx').on(table.author_user_id, table.created_at),
+  };
 });
 
 // Post Audience (for friend_group targeting)
@@ -233,13 +244,17 @@ export const feed_events = pgTable('feed_events', {
 // Notifications
 export const notifications = pgTable('notifications', {
   notification_id: uuid('notification_id').primaryKey().defaultRandom(),
-  recipient_user_id: uuid('recipient_user_id').references(() => users.user_id, { onDelete: 'cascade' }),
+  user_id: uuid('user_id').references(() => users.user_id, { onDelete: 'cascade' }),
   sender_user_id: uuid('sender_user_id').references(() => users.user_id, { onDelete: 'set null' }),
   type: eventTypeEnum('type').notNull(),
   content: text('content').notNull(),
-  related_item_id: text('related_item_id'), // Can be post_id, session_id, etc.
+  related_item_id: text('related_item_id'),
   is_read: boolean('is_read').default(false),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow()
+}, (table) => {
+  return {
+    userCreatedAtIdx: index('notifications_user_id_created_at_idx').on(table.user_id, table.created_at),
+  };
 });
 
 // Users Metadata (for additional user data storage)

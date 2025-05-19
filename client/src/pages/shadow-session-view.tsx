@@ -124,7 +124,7 @@ export function ShadowSessionViewPage() {
   const creator = session.creator || createFallbackUser(sessionPost.author_user_id || "unknown", "Unknown Host");
   
   return (
-    <MainLayout showRightSidebar={false}>
+    <MainLayout>
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Link href="/shadow-sessions">

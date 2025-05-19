@@ -76,6 +76,7 @@ const ProfilePage: FC = () => {
 
   return (
     <MainLayout>
+      {/* Main content here, centered */}
       {/* Profile Header */}
       <Card className="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden mb-6">
         <div className="h-32 bg-gradient-to-r from-primary-200 to-primary-100 dark:from-primary-900 dark:to-primary-800"></div>
