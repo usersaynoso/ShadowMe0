@@ -1248,43 +1248,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Add a POST endpoint for deletion as a workaround for browsers that don't handle DELETE well
-  app.post("/api/posts/:postId/delete", isAuthenticated, async (req, res) => {
-    const { postId } = req.params;
-    console.log(`Received POST delete request for post ${postId}`);
-    
-    if (!req.user) {
-      console.error(`Authentication failed for deleting post ${postId}`);
-      return res.status(401).json({ message: "Not authenticated" });
-    }
-    
-    try {
-      const userId = req.user.user_id;
-      console.log(`User ${userId} attempting to delete post ${postId} via POST`);
-      
-      await storage.deletePost(postId, userId);
-      
-      console.log(`Successfully deleted post ${postId} via POST endpoint`);
-      
-      return res.status(200).json({
-        success: true,
-        message: "Post deleted successfully"
-      });
-    } catch (err) {
-      console.error(`Error deleting post ${postId}:`, err);
-      
-      if (err instanceof Error) {
-        if (err.message === "Post not found") {
-          return res.status(404).json({ message: "Post not found" });
-        } else if (err.message === "You can only delete your own posts") {
-          return res.status(403).json({ message: "You can only delete your own posts" });
-        }
-      }
-      
-      return res.status(500).json({ message: "Failed to delete post", error: String(err) });
-    }
-  });
-
   // Serve uploaded files
   app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 

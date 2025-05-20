@@ -26,9 +26,10 @@ interface CreatePostDialogProps {
   onEditSuccess?: (post: Post) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  initialIsShadowSession?: boolean;
 }
 
-export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children, postToEdit, onEditSuccess, open: controlledOpen, onOpenChange }) => {
+export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children, postToEdit, onEditSuccess, open: controlledOpen, onOpenChange, initialIsShadowSession = false }) => {
   const { user } = useAuth();
   const [content, setContent] = useState("");
   const [selectedEmotions, setSelectedEmotions] = useState<number[]>([]);
@@ -40,7 +41,7 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children, postToEd
   const [showSuccess, setShowSuccess] = useState(false);
   
   // Shadow session fields
-  const [isShadowSession, setIsShadowSession] = useState(false);
+  const [isShadowSession, setIsShadowSession] = useState(initialIsShadowSession);
   const [sessionTitle, setSessionTitle] = useState("");
   const [sessionDate, setSessionDate] = useState<Date | undefined>(undefined);
   const [startTime, setStartTime] = useState("");
@@ -228,12 +229,19 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children, postToEd
       setSelectedEmotions(postToEdit.emotion_ids || []);
       setAudience(postToEdit.audience);
       setSelectedCircles(postToEdit.audience === 'friend_group' && postToEdit.audienceDetails?.ids ? postToEdit.audienceDetails.ids : []);
+      setIsShadowSession(!!postToEdit.shadow_session);
+      if (postToEdit.shadow_session) {
+        setSessionTitle(postToEdit.shadow_session.title || "");
+        setSessionDate(postToEdit.shadow_session.starts_at ? new Date(postToEdit.shadow_session.starts_at) : undefined);
+        setStartTime(postToEdit.shadow_session.starts_at ? format(new Date(postToEdit.shadow_session.starts_at), "HH:mm") : "");
+        setEndTime(postToEdit.shadow_session.ends_at ? format(new Date(postToEdit.shadow_session.ends_at), "HH:mm") : "");
+        setTimezone(postToEdit.shadow_session.timezone || "UTC");
+      }
       // TODO: handle media preview if needed
-      // TODO: handle shadow session fields if needed
     } else {
       resetForm();
     }
-  }, [postToEdit]);
+  }, [postToEdit, initialIsShadowSession]);
 
   // Handle form submission
   const handleSubmit = () => {
@@ -300,7 +308,7 @@ export const CreatePostDialog: FC<CreatePostDialogProps> = ({ children, postToEd
     setSelectedCircles([]);
     setMedia(null);
     setPreviewUrl(null);
-    setIsShadowSession(false);
+    setIsShadowSession(initialIsShadowSession);
     setSessionTitle("");
     setSessionDate(undefined);
     setStartTime("");

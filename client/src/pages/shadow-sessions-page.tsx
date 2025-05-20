@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AvatarWithEmotion } from "@/components/ui/avatar-with-emotion";
-import { CreateShadowSessionDialog } from "@/components/create-shadow-session-dialog";
+import { CreatePostDialog } from "@/components/create-post-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -141,12 +141,12 @@ const ShadowSessionsPage: FC = () => {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Shadow Sessions</h1>
-          <CreateShadowSessionDialog open={openCreateDialog} onOpenChange={setOpenCreateDialog}>
+          <CreatePostDialog open={openCreateDialog} onOpenChange={setOpenCreateDialog} initialIsShadowSession={true}>
             <Button className="flex items-center">
               <Plus className="mr-2 h-4 w-4" />
               Create Session
             </Button>
-          </CreateShadowSessionDialog>
+          </CreatePostDialog>
         </div>
         
         <div className="relative">
@@ -279,9 +279,9 @@ const ShadowSessionsPage: FC = () => {
                     : "There are no upcoming shadow sessions at the moment."}
                 </p>
                 <div className="flex gap-3 justify-center">
-                  <CreateShadowSessionDialog>
+                  <CreatePostDialog initialIsShadowSession={true}>
                     <Button>Schedule Your First Session</Button>
-                  </CreateShadowSessionDialog>
+                  </CreatePostDialog>
                   {searchQuery && (
                     <Button 
                       variant="outline" 

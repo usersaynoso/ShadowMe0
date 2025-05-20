@@ -327,7 +327,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
   const deletePostMutation = useMutation({
     mutationFn: async () => {
       // Optimistically update UI by hiding the post
-      setIsVisible(false);
+      // setIsVisible(false); // Moved to onSuccess of the mutation for confirmed deletion
       
       console.log(`Attempting to delete post ${post.post_id}`);
       
@@ -344,13 +344,15 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`Deletion error: ${errorText}`);
+        // setIsVisible(true); // Revert optimistic update if error occurs before onSuccess
         throw new Error(errorText || 'Failed to delete post');
       }
       
-      return response;
+      return response; // Or response.json() if the server sends a body
     },
     onSuccess: () => {
       console.log(`Successfully deleted post ${post.post_id}, invalidating queries`);
+      setIsVisible(false); // Optimistic/Confirmed hide
       // Invalidate and refetch relevant queries
       queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
       queryClient.invalidateQueries({ queryKey: [`/api/users/${user?.user_id}/posts`] });
@@ -382,50 +384,7 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
     
     if (confirm('Are you sure you want to delete this post?')) {
       console.log(`Delete confirmed for post ${post.post_id}`);
-      
-      // Hide the post optimistically
-      setIsVisible(false);
-      
-      try {
-        // Use fetch with POST method which is more reliable than DELETE
-        const response = await fetch(`/api/posts/${post.post_id}/delete`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-        
-        console.log(`Delete request status: ${response.status}`);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(errorText || 'Failed to delete post');
-        }
-        
-        // Show success toast
-        toast({
-          title: "Post deleted",
-          description: "Your post has been deleted successfully.",
-        });
-        
-        // Invalidate queries to refresh the UI
-        queryClient.invalidateQueries({ queryKey: ['/api/posts'] });
-        queryClient.invalidateQueries({ queryKey: [`/api/users/${user?.user_id}/posts`] });
-        
-      } catch (error) {
-        console.error(`Error deleting post ${post.post_id}:`, error);
-        
-        // Show error toast
-        toast({
-          title: "Error",
-          description: "Failed to delete post. Please try again.",
-          variant: "destructive",
-        });
-        
-        // Revert visibility since deletion failed
-        setIsVisible(true);
-      }
+      deletePostMutation.mutate();
     }
   };
 
