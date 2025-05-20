@@ -11,6 +11,8 @@ import ShadowSessionsPage from "@/pages/shadow-sessions-page";
 import ProfilePage from "@/pages/profile-page";
 import { ShadowSessionViewPage } from "@/pages/shadow-session-view";
 import SpaceViewPage from "@/pages/spaces-[spaceId]";
+import ArkPage from "@/pages/admin/ArkPage";
+import SettingsPage from "@/pages/SettingsPage";
 import { ProtectedRoute } from "./lib/protected-route";
 import { AuthProvider } from "./hooks/use-auth";
 
@@ -27,6 +29,12 @@ function Router() {
       <ProtectedRoute path="/shadow-sessions/:sessionId" component={() => <ShadowSessionViewPage />} />
       <ProtectedRoute path="/profile/:userId?" component={() => <ProfilePage />} />
       <ProtectedRoute path="/profile" component={() => <ProfilePage />} />
+      <ProtectedRoute path="/settings" component={() => <SettingsPage />} />
+      <ProtectedRoute 
+        path="/ark" 
+        component={() => <ArkPage />} 
+        allowedRoles={['admin']}
+      />
       <Route component={NotFound} />
     </Switch>
   );

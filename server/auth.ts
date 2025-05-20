@@ -209,3 +209,17 @@ export function isAuthenticated(req: Request, res: Response, next: NextFunction)
   }
   res.status(401).json({ message: "Authentication required" });
 }
+
+// Middleware to check if user has a specific role
+export function isRole(role: string | string[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
+    const userRoles = Array.isArray(role) ? role : [role];
+    if (req.user && req.user.user_type && userRoles.includes(req.user.user_type)) {
+      return next();
+    }
+    res.status(403).json({ message: "Forbidden: Insufficient permissions" });
+  };
+}

@@ -18,6 +18,7 @@ export const reactionTypeEnum = pgEnum('reaction_type_enum', [
   'made_my_day'
 ]);
 export const eventTypeEnum = pgEnum('event_type_enum', ['friendship_accepted', 'message_sent', 'shadow_session_created', 'post_created', 'post_liked', 'post_commented', 'friendship_request', 'shadow_session_reminder', 'group_invite', 'friend_group_invite']);
+export const smtpEncryptionEnum = pgEnum('smtp_encryption_enum', ['none', 'ssl', 'tls']);
 
 // Define Tables
 
@@ -41,7 +42,9 @@ export const profiles = pgTable('profiles', {
   bio: text('bio'),
   avatar_url: text('avatar_url'),
   timezone: text('timezone').default('UTC'),
-  last_seen_at: timestamp('last_seen_at', { withTimezone: true })
+  last_seen_at: timestamp('last_seen_at', { withTimezone: true }),
+  preferences_blob: jsonb('preferences_blob'), // For theme, presence, general prefs
+  notification_settings_blob: jsonb('notification_settings_blob') // For detailed notification toggles
 });
 
 // Friends (mutual friend connections)
@@ -249,18 +252,27 @@ export const feed_events = pgTable('feed_events', {
 
 // Notifications
 export const notifications = pgTable('notifications', {
-  notification_id: uuid('notification_id').primaryKey().defaultRandom(),
-  user_id: uuid('user_id').references(() => users.user_id, { onDelete: 'cascade' }),
-  sender_user_id: uuid('sender_user_id').references(() => users.user_id, { onDelete: 'set null' }),
-  type: eventTypeEnum('type').notNull(),
-  content: text('content').notNull(),
-  related_item_id: text('related_item_id'),
+  notification_id: bigserial('notification_id', { mode: 'number' }).primaryKey(),
+  recipient_user_id: uuid('recipient_user_id').references(() => users.user_id, { onDelete: 'cascade' }),
+  actor_user_id: uuid('actor_user_id').references(() => users.user_id, { onDelete: 'cascade' }),
+  event_type: eventTypeEnum('event_type').notNull(),
+  entity_id: uuid('entity_id'), // e.g., post_id, comment_id, user_id for friend request
+  entity_type: text('entity_type'), // e.g., 'post', 'comment', 'friend_request'
   is_read: boolean('is_read').default(false),
   created_at: timestamp('created_at', { withTimezone: true }).defaultNow()
-}, (table) => {
-  return {
-    userCreatedAtIdx: index('notifications_user_id_created_at_idx').on(table.user_id, table.created_at),
-  };
+});
+
+// System Settings (for SMTP, etc.)
+export const system_settings = pgTable('system_settings', {
+  id: uuid('id').primaryKey().defaultRandom(), // In case other system settings are added later
+  key: varchar('key', { length: 50 }).notNull().unique(), // e.g., 'smtp_config'
+  settings_blob: jsonb('settings_blob').notNull(), // Stores the actual settings object
+  // Specific fields for SMTP for easier querying if ever needed, and for type safety.
+  // Only one row with key='smtp_config' should exist for SMTP.
+  // Alternatively, a dedicated table for smtp_configuration could be made if settings grow complex.
+  // For now, using a generic key-value approach with a specific structure for 'smtp_config' in settings_blob.
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updated_at: timestamp('updated_at', { withTimezone: true }).defaultNow()
 });
 
 // Users Metadata (for additional user data storage)

@@ -5,12 +5,13 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { setupWebSockets } from "./websocket";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
-import { posts, User, reactionTypeEnum } from "../shared/schema";
+import { posts, User, reactionTypeEnum, eventTypeEnum, type InsertNotification } from "../shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import cors from "cors";
+import adminRoutes from "./adminRoutes"; // Added import for admin routes
 
 // Configure multer for file uploads
 const upload = multer({
@@ -44,20 +45,22 @@ const upload = multer({
 
 // Helper function to create notifications
 async function createUserNotification(
-  recipientId: string,
-  senderId: string | null,
-  type: string,
-  content: string,
-  relatedItemId?: string
+  recipient_user_id: string,
+  actor_user_id: string | null,
+  event_type: InsertNotification['event_type'],
+  entity_id?: string,
+  entity_type?: string
 ) {
   try {
-    await storage.createNotification({
-      user_id: recipientId,
-      sender_user_id: senderId,
-      type: type as any,
-      content,
-      related_item_id: relatedItemId
-    });
+    const notificationPayload: InsertNotification = {
+      recipient_user_id,
+      actor_user_id,
+      event_type,
+    };
+    if (entity_id) notificationPayload.entity_id = entity_id;
+    if (entity_type) notificationPayload.entity_type = entity_type;
+
+    await storage.createNotification(notificationPayload);
   } catch (error) {
     console.error('Error creating notification:', error);
   }
@@ -104,6 +107,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Set up authentication routes
   setupAuth(app);
+
+  // Register admin routes
+  app.use("/api/ark", adminRoutes);
 
   // API Routes
   // ----------
@@ -328,49 +334,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/posts/:postId/comments", isAuthenticated, async (req, res) => {
     try {
       const { postId } = req.params;
-      const { body, parent_comment_id } = req.body;
-      const author_user_id = req.user!.user_id;
+      const { author_user_id, body, parent_comment_id } = req.body;
 
-      if (!body || typeof body !== 'string' || body.trim() === '') {
-        return res.status(400).json({ error: 'Comment body is required' });
+      if (!body) {
+        return res.status(400).json({ message: "Comment body is required" });
       }
-      
-      const post = await storage.getPostById(postId, author_user_id);
+
+      const post = await storage.getPostById(postId, author_user_id || req.user!.user_id);
       if (!post) {
         return res.status(404).json({ error: 'Post not found' });
       }
       
-      const newComment = await storage.createComment({
+      const comment = await storage.createComment({
         post_id: postId,
-        author_user_id: author_user_id,
+        author_user_id: author_user_id || req.user!.user_id,
+        body,
         parent_comment_id: parent_comment_id || null,
-        body
       });
-      
-      if (post.author_user_id !== author_user_id) {
+
+      // Notify post author if they are not the commenter
+      if (post.author_user_id !== (author_user_id || req.user!.user_id)) {
         await createUserNotification(
-          post.author_user_id,
-          author_user_id,
+          post.author_user_id, // Recipient
+          author_user_id || req.user!.user_id,   // Actor
           'post_commented',
-          `commented on your post`,
-          postId
+          comment.comment_id,  // Entity: the new comment
+          'comment'
         );
       }
-      
-      if (parent_comment_id) {
-        const parentComment = await storage.getCommentById(parent_comment_id);
-        if (parentComment && parentComment.author_user_id !== author_user_id) {
+
+      // If it's a reply, notify the parent comment author
+      if (comment.parent_comment_id) {
+        const parentComment = await storage.getCommentById(comment.parent_comment_id); // Fetch parentComment
+        if (parentComment && parentComment.author_user_id !== (author_user_id || req.user!.user_id) && 
+            parentComment.author_user_id !== post.author_user_id) { // Ensure not notifying self or post author again
           await createUserNotification(
-            parentComment.author_user_id,
-            author_user_id,
-            'post_commented',
-            `replied to your comment`,
-            postId
+            parentComment.author_user_id, // Recipient
+            author_user_id || req.user!.user_id, // Actor
+            'post_commented', // Corrected event type from 'comment_replied'
+            comment.comment_id,           // Entity: the new reply comment
+            'comment'
           );
         }
       }
       
-      res.json(newComment);
+      res.status(201).json(comment);
     } catch (error) {
       console.error('Error creating comment:', error);
       res.status(500).json({ error: 'Failed to create comment' });
@@ -412,7 +420,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await createUserNotification(
           parentComment.author_user_id,
           author_user_id,
-          'comment_replied',
+          'post_commented',
           `replied to your comment: "${body.substring(0, 30)}${body.length > 30 ? '...' : ''}"`,
           `/post/${post_id}?comment=${reply.comment_id}`
         );
@@ -460,46 +468,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/posts/:postId/reactions", isAuthenticated, async (req, res) => {
     try {
-      const user_id = req.user!.user_id;
       const { postId } = req.params;
       const { reaction_type } = req.body;
-      
-      if (!reaction_type) {
-        return res.status(400).json({ error: 'Reaction type is required' });
-      }
-      
+      const user_id = req.user!.user_id;
+
       if (!reactionTypeEnum.enumValues.includes(reaction_type)) {
         return res.status(400).json({ 
-          error: 'Invalid reaction type',
-          message: `Allowed types are: ${reactionTypeEnum.enumValues.join(', ')}` 
+          message: 'Invalid reaction type',
+          details: `Allowed types are: ${reactionTypeEnum.enumValues.join(', ')}` 
         });
       }
-      
+
       const post = await storage.getPostById(postId, user_id);
       if (!post) {
-        return res.status(404).json({ error: 'Post not found' });
+        return res.status(404).json({ message: "Post not found" });
       }
-      
+
       const newReaction = await storage.createReaction({
-        post_id: postId,
-        user_id: user_id,
-        reaction_type
+        post_id: postId, 
+        user_id,
+        reaction_type,
       });
-      
+
+      // Notify post author if they are not the one reacting
       if (post.author_user_id !== user_id) {
         await createUserNotification(
-          post.author_user_id,
-          user_id,
-          'post_liked',
-          `reacted to your post with ${reaction_type}`,
-          postId
+          post.author_user_id,   
+          user_id,               
+          'post_liked',          
+          newReaction.reaction_id.toString(), 
+          'reaction'             
         );
       }
-      
-      res.json(newReaction);
+
+      res.status(201).json(newReaction);
     } catch (error) {
       console.error('Error creating reaction:', error);
-      res.status(500).json({ error: 'Failed to create reaction' });
+      res.status(500).json({ message: "Failed to create reaction" });
     }
   });
 
@@ -565,6 +570,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       await storage.joinShadowSession(sessionId, user_id);
+      
+      // Notify invited friends
+      if (session.friend_ids && Array.isArray(session.friend_ids)) {
+        for (const friendId of session.friend_ids) {
+          // Make sure friendId is a string
+          if (typeof friendId === 'string') {
+            await storage.createNotification({ // Direct call updated
+              recipient_user_id: friendId,
+              actor_user_id: req.user!.user_id,
+              event_type: 'shadow_session_created', // Placeholder, ideally 'shadow_session_invite'
+              entity_id: session.post_id,
+              entity_type: 'shadow_session'
+            });
+          }
+        }
+      }
+      // Notify invited friend groups - members of these groups
+      if (session.friend_group_ids && Array.isArray(session.friend_group_ids)) {
+        for (const fgId of session.friend_group_ids) {
+          if (typeof fgId === 'string') {
+            const members = await storage.getFriendGroupMembers(fgId);
+            for (const member of members) {
+              if (member.user_id !== req.user!.user_id) { // Don't notify self
+                await storage.createNotification({ // Direct call updated
+                  recipient_user_id: member.user_id,
+                  actor_user_id: req.user!.user_id,
+                  event_type: 'shadow_session_created', // Placeholder
+                  entity_id: session.post_id,
+                  entity_type: 'shadow_session'
+                });
+              }
+            }
+          }
+        }
+      }
       
       if (session.author_user_id !== user_id) {
         await createUserNotification(
@@ -722,53 +762,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // NEW: Add member to a friend group
+  // Add a member to a friend group (circle)
   app.post("/api/friend-groups/:groupId/members", isAuthenticated, async (req, res) => {
     try {
-      console.log(`[API] Adding member to circle. GroupId: ${req.params.groupId}, UserId: ${req.user!.user_id}, MemberId: ${req.body.user_id}`);
-      
-      const groupId = req.params.groupId;
-      const memberUserId = req.body.user_id;
-      
-      if (!groupId || typeof groupId !== 'string') {
-        console.log(`[API] Invalid group ID: ${groupId}`);
-        return res.status(400).json({ message: "Invalid circle ID" });
+      const { groupId } = req.params;
+      const { userId } = req.body; // User ID of the member to add
+      const requesterId = req.user!.user_id;
+
+      if (!userId) {
+        return res.status(400).json({ message: "User ID of member to add is required." });
       }
-      
-      if (!memberUserId || typeof memberUserId !== 'string') {
-        console.log(`[API] Invalid member user ID: ${memberUserId}`);
-        return res.status(400).json({ message: "Invalid user ID" });
-      }
-      
-      const userToAdd = await storage.getUserById(memberUserId);
-      if (!userToAdd) {
-        console.log(`[API] User to add not found: ${memberUserId}`);
-        return res.status(404).json({ message: "User not found" });
-      }
-      
-      const isOwner = await storage.isFriendGroupOwner(groupId, req.user!.user_id);
-      console.log(`[API] Is user the circle owner? ${isOwner}`);
-      
+
+      // Check if requester is the owner of the friend group
+      const isOwner = await storage.isFriendGroupOwner(groupId, requesterId);
       if (!isOwner) {
-        console.log(`[API] Permission denied - user ${req.user!.user_id} is not the owner of circle ${groupId}`);
-        return res.status(403).json({ message: "Only the circle owner can add members" });
+        return res.status(403).json({ message: "Only the owner can add members to this friend group." });
       }
       
-      const isConnection = await storage.areUsersConnected(req.user!.user_id, memberUserId);
-      console.log(`[API] Are users connected? ${isConnection}`);
-      
-      if (!isConnection) {
-        console.log(`[API] Cannot add user - ${req.user!.user_id} and ${memberUserId} are not connected`);
-        return res.status(400).json({ message: "You can only add connections to your circles" });
+      // No need to fetch the full group object if groupId from params is the friend_group_id
+      // and we only need this ID for the notification.
+      // Existence is somewhat implied by isOwner check, or addFriendGroupMember should handle invalid groupId.
+
+      await storage.addFriendGroupMember(groupId, userId);
+
+      // Notify the added user
+      if (userId !== requesterId) { // Don't notify if owner adds themselves
+        await createUserNotification(
+          userId,             // Recipient (the user being added)
+          requesterId,        // Actor (the owner adding the member)
+          'friend_group_invite',
+          groupId,            // Entity: the friend group ID from params
+          'friend_group'
+        );
       }
-      
-      await storage.addFriendGroupMember(groupId, memberUserId);
-      console.log(`[API] Successfully added member ${memberUserId} to circle ${groupId}`);
-      
-      res.status(200).json({ success: true });
-    } catch (err) {
-      console.error("Failed to add circle member:", err);
-      res.status(500).json({ message: "Failed to add circle member" });
+
+      res.json({ message: "Member added to friend group successfully." });
+    } catch (error) {
+      console.error("Failed to add member to friend group:", error);
+      if (error instanceof Error && error.message.includes("already a member")) {
+        return res.status(409).json({ message: error.message });
+      }
+      if (error instanceof Error && error.message.includes("User not found")) { // Assuming storage might throw this
+        return res.status(404).json({ message: "User to add not found." });
+      }
+      res.status(500).json({ message: "Failed to add member to friend group" });
     }
   });
 
@@ -886,10 +923,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/groups/:groupId/join", isAuthenticated, async (req, res) => {
     try {
-      await storage.joinGroup(req.params.groupId, req.user!.user_id);
-      res.status(200).json({ message: "Joined group successfully" });
-    } catch (err) {
-      console.error("Failed to join group:", err);
+      const { groupId } = req.params;
+      const userId = req.user!.user_id;
+
+      const group = await storage.getGroupById(groupId); // Fetch group details
+      if (!group) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      await storage.joinGroup(groupId, userId);
+
+      // Notify group creator (if they exist and are not the one joining)
+      if (group.creator_user_id && group.creator_user_id !== userId) {
+        await createUserNotification(
+          group.creator_user_id,    // Recipient
+          userId,                   // Actor
+          'group_invite',           // Event type (placeholder for actual join notification type)
+          group.group_id,           // Entity: the group
+          'group'
+        );
+      }
+
+      res.json({ message: "Successfully joined group." });
+    } catch (error) {
+      console.error("Failed to join group:", error);
+      // Handle specific errors, e.g., if user is already a member
+      if (error instanceof Error && error.message.includes("already a member")) {
+        return res.status(409).json({ message: error.message });
+      }
       res.status(500).json({ message: "Failed to join group" });
     }
   });
@@ -956,65 +1017,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/friends/request", isAuthenticated, async (req, res) => {
+  // Accept a friend request
+  app.post("/api/friends/accept/:friendId", isAuthenticated, async (req, res) => {
     try {
       const userId = req.user!.user_id;
-      const { friend_id } = req.body;
-      
-      if (!friend_id) {
-        return res.status(400).json({ error: 'Friend ID is required' });
-      }
-      
-      await storage.sendFriendRequest(userId, friend_id);
-      
-      await createUserNotification(
-        friend_id, 
-        userId, 
-        'friendship_request', 
-        `sent you a connection request`,
-        userId
-      );
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error sending friend request:', error);
-      res.status(500).json({ error: 'Failed to send request' });
-    }
-  });
+      const { friendId } = req.params;
 
-  app.post("/api/friends/accept", isAuthenticated, async (req, res) => {
-    try {
-      const userId = req.user!.user_id;
-      const { friend_id } = req.body;
-      
-      if (!friend_id) {
-        return res.status(400).json({ error: 'Friend ID is required' });
-      }
-      
-      await storage.acceptFriendRequest(userId, friend_id);
-      
-      await createUserNotification(
-        friend_id, 
-        userId, 
-        'friendship_accepted', 
-        `accepted your connection request`,
-        userId
-      );
-      
-      res.json({ success: true });
-    } catch (error) {
-      console.error('Error accepting friend request:', error);
-      res.status(500).json({ error: 'Failed to accept request' });
-    }
-  });
+      await storage.acceptFriendRequest(userId, friendId);
 
-  app.delete("/api/friends/request", isAuthenticated, async (req, res) => {
-    try {
-      await storage.rejectFriendRequest(req.user!.user_id, req.body.friend_id);
-      res.status(204).send();
+      // Notify the user who made the original request that it was accepted
+      await createUserNotification(
+        friendId,          // Recipient: user who initially sent the request
+        userId,            // Actor: user who accepted the request
+        'friendship_accepted',
+        userId,            // Entity: the user who accepted (links to their profile)
+        'user'
+      );
+      // Notify the user who accepted the request that they have a new friend
+      await createUserNotification(
+        userId,            // Recipient: user who accepted
+        friendId,          // Actor: user who made the original request
+        'friendship_accepted',
+        friendId,          // Entity: the user who made the request (links to their profile)
+        'user'
+      );
+
+      res.json({ message: "Friend request accepted." });
     } catch (err) {
-      console.error("Failed to reject friend request:", err);
-      res.status(500).json({ message: "Failed to reject friend request" });
+      console.error("Failed to accept friend request:", err);
+      const typedError = err as Error;
+      if (typedError.message === 'Friendship not found or not pending') {
+        return res.status(404).json({ message: typedError.message });
+      }
+      res.status(500).json({ message: "Failed to accept friend request" });
+    }
+  });
+
+  // Send a friend request
+  app.post("/api/friends/request/:friendId", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user!.user_id;
+      const { friendId } = req.params;
+
+      if (userId === friendId) {
+        return res.status(400).json({ message: "Cannot send friend request to yourself." });
+      }
+
+      await storage.sendFriendRequest(userId, friendId);
+
+      // Notify the recipient of the friend request
+      await createUserNotification(
+        friendId,          // Recipient
+        userId,            // Actor
+        'friendship_request',
+        userId,            // Entity: the user who sent the request
+        'user'
+      );
+
+      res.json({ message: "Friend request sent." });
+    } catch (err) {
+      console.error("Failed to send friend request:", err);
+      const typedError = err as Error;
+      if (typedError.message === 'Friend request already sent or users already friends') {
+        return res.status(400).json({ message: typedError.message });
+      }
+      res.status(500).json({ message: "Failed to send friend request" });
     }
   });
 
@@ -1193,6 +1260,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Error deleting notification:', error);
       res.status(500).json({ error: 'Failed to delete notification' });
+    }
+  });
+
+  // User Settings Endpoints
+  app.get("/api/user/settings", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user!.user_id;
+      const profile = await storage.getProfile(userId);
+
+      if (!profile) {
+        // This case should ideally not happen for an authenticated user if profile is created on registration
+        return res.status(404).json({ message: "Profile not found for user." });
+      }
+
+      // Define default settings structures
+      const defaultPreferences = {
+        theme: "system",
+        theme_auto_sunrise_sunset: false,
+        show_online_status: true,
+        default_post_audience: "everyone",
+        allow_friend_requests_from: "everyone",
+        allow_space_circle_invites_from: "everyone",
+      };
+      const defaultNotificationSettings = { /* Define default structure for all notification types and their toggles */ };
+
+      res.json({
+        preferences: profile.preferences_blob || defaultPreferences,
+        notificationSettings: profile.notification_settings_blob || defaultNotificationSettings,
+      });
+    } catch (error) {
+      console.error("Failed to get user settings:", error);
+      res.status(500).json({ message: "Failed to retrieve user settings" });
+    }
+  });
+
+  app.put("/api/user/settings", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user!.user_id;
+      const { preferences, notificationSettings } = req.body;
+
+      const currentProfile = await storage.getProfile(userId);
+      if (!currentProfile) {
+        return res.status(404).json({ message: "Profile not found for user." });
+      }
+
+      const updatePayload: { preferences_blob?: any, notification_settings_blob?: any } = {};
+
+      if (preferences) {
+        // Merge with existing preferences to allow partial updates
+        updatePayload.preferences_blob = { ...(currentProfile.preferences_blob || {}), ...preferences };
+      }
+      if (notificationSettings) {
+        // Merge with existing notification settings
+        updatePayload.notification_settings_blob = { ...(currentProfile.notification_settings_blob || {}), ...notificationSettings };
+      }
+
+      if (Object.keys(updatePayload).length === 0) {
+        return res.status(400).json({ message: "No settings provided to update." });
+      }
+      
+      const updatedProfile = await storage.updateProfile(userId, updatePayload);
+
+      res.json({
+        message: "Settings updated successfully.",
+        preferences: updatedProfile.preferences_blob,
+        notificationSettings: updatedProfile.notification_settings_blob
+      });
+    } catch (error) {
+      console.error("Failed to update user settings:", error);
+      res.status(500).json({ message: "Failed to update user settings" });
     }
   });
 

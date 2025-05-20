@@ -21,6 +21,7 @@ const ProfilePage: FC = () => {
   const [_, params] = useRoute("/profile/:userId");
   const userId = params?.userId || user?.user_id;
   const isOwnProfile = userId === user?.user_id;
+  const [, setLocation] = useLocation();
 
   // Get profile data
   const { data: profileUser, isLoading: profileLoading } = useQuery<User>({
@@ -109,12 +110,12 @@ const ProfilePage: FC = () => {
                     Edit Profile
                   </Button>
                 </ProfileEditDialog>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="rounded-full"
-                  onClick={() => alert("Coming Soon!")}
-                  title="Coming Soon!"
+                  onClick={() => setLocation('/settings')}
+                  title="Go to Settings"
                 >
                   <Settings className="h-4 w-4 mr-1" />
                   Settings

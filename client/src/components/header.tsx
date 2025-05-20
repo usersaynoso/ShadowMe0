@@ -111,13 +111,16 @@ export const Header: FC = () => {
                   </a>
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem 
+              <DropdownMenuItem
                 className="cursor-pointer"
-                onClick={() => alert("Coming Soon!")}
-                title="Coming Soon!"
+                asChild
               >
-                <Settings className="mr-2 h-4 w-4" />
-                <span>Settings</span>
+                <Link href="/settings">
+                  <a className="flex items-center w-full">
+                    <Settings className="mr-2 h-4 w-4" />
+                    <span>Settings</span>
+                  </a>
+                </Link>
               </DropdownMenuItem>
               <DropdownMenuItem 
                 className="cursor-pointer"
