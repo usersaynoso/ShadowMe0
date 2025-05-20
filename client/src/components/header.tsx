@@ -87,14 +87,6 @@ export const Header: FC = () => {
             <Search className="h-5 w-5" />
           </Button>
           
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            className="rounded-full text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            <Bell className="h-5 w-5" />
-          </Button>
-          
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <NotificationBell />

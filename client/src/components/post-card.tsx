@@ -490,7 +490,22 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
             
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">
-                <h3 className="font-medium text-sm">{post.author.profile?.display_name}</h3>
+                <div className="flex items-baseline">
+                  <h3 className="font-medium text-sm mr-1">{post.author.profile?.display_name}</h3>
+                  {post.emotion_ids.length > 0 && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {new Date().getTime() - new Date(post.created_at).getTime() < 3600000 ? "is feeling" : "was feeling"} {post.emotion_ids.map(id => {
+                        const emotion = emotions.find(e => e.id === id);
+                        return emotion ? emotion.name.toLowerCase() : '';
+                      }).filter(name => name)
+                      .reduce((acc, name, index, arr) => {
+                        if (index === 0) return name;
+                        if (index === arr.length - 1) return acc + " and " + name;
+                        return acc + ", " + name;
+                      }, "")}.
+                    </p>
+                  )}
+                </div>
                 <div className="flex items-center space-x-2">
                   <span className="text-xs text-gray-500 dark:text-gray-400">
                     {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
@@ -536,21 +551,6 @@ export const PostCard: FC<PostCardProps> = ({ post, emotions, onPostUpdated }) =
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
-              </div>
-              
-              <div className="flex space-x-2 mt-1">
-                {post.emotion_ids.map(id => {
-                  const emotion = emotions.find(e => e.id === id);
-                  if (!emotion) return null;
-                  return (
-                    <EmotionBadge 
-                      key={emotion.id} 
-                      emotion={emotion}
-                      selected={true}
-                      size="xs"
-                    />
-                  );
-                })}
               </div>
             </div>
           </div>
