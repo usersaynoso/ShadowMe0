@@ -15,17 +15,19 @@ import { ShadowSession, Post, User, Emotion } from "@/types";
 import { ShadowSessionMediaGallery } from "@/components/shadow-session-media-gallery";
 
 // Helper function to create a fallback user
-const createFallbackUser = (userId: string, displayName: string = "Unknown"): User => ({
+const createFallbackUser = (userId: string, displayName: string = "Unknown User"): User => ({
   user_id: userId,
   email: `${userId}@example.com`,
   user_type: "user",
-  user_points: 0,
+  user_points: "0",
   user_level: 1,
   is_active: true,
   created_at: new Date().toISOString(),
   profile: {
-    display_name: displayName
-  }
+    display_name: displayName,
+    avatar_url: undefined,
+    bio: undefined,
+  },
 });
 
 export function ShadowSessionViewPage() {
@@ -230,7 +232,13 @@ export function ShadowSessionViewPage() {
               
               <CardFooter className="border-t pt-4 flex justify-between">
                 <div className="flex items-center space-x-4">
-                  <Button variant="ghost" size="sm" className="text-gray-500">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-gray-500"
+                    onClick={() => alert("Coming Soon!")}
+                    title="Coming Soon!"
+                  >
                     <Heart className="h-4 w-4 mr-2" />
                     {sessionPost.reactions_count || 0}
                   </Button>

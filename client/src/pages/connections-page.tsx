@@ -359,7 +359,14 @@ const ConnectionsPage: FC = () => {
                             {circle.description || `${circle.memberCount || 0} members`}
                           </p>
                         </div>
-                        <Button variant="outline" size="sm">Manage</Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => alert("Coming Soon!")}
+                          title="Coming Soon!"
+                        >
+                          Manage
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>

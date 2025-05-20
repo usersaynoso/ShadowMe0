@@ -14,14 +14,26 @@ const GoogleTextAds: FC = () => (
     <Card className="mb-3 border border-yellow-300">
       <CardContent className="py-3 px-4">
         <div className="text-xs text-gray-400 mb-1">Ad · www.example-ad1.com</div>
-        <div className="font-semibold text-blue-700 mb-1">Try ShadowMe Pro – Boost Your Productivity</div>
+        <div 
+          className="font-semibold text-blue-700 mb-1 cursor-pointer hover:underline"
+          onClick={() => alert("Coming Soon!")}
+          title="Coming Soon!"
+        >
+          Try ShadowMe Pro – Boost Your Productivity
+        </div>
         <div className="text-sm text-gray-700">Unlock advanced features and get more done. Start your free trial today!</div>
       </CardContent>
     </Card>
     <Card className="border border-yellow-300">
       <CardContent className="py-3 px-4">
         <div className="text-xs text-gray-400 mb-1">Ad · www.example-ad2.com</div>
-        <div className="font-semibold text-blue-700 mb-1">Meet New Friends Online – Join Now</div>
+        <div 
+          className="font-semibold text-blue-700 mb-1 cursor-pointer hover:underline"
+          onClick={() => alert("Coming Soon!")}
+          title="Coming Soon!"
+        >
+          Meet New Friends Online – Join Now
+        </div>
         <div className="text-sm text-gray-700">Connect instantly with like-minded people. Safe, fun, and free to join!</div>
       </CardContent>
     </Card>
@@ -81,6 +93,8 @@ export const RightSidebar: FC = () => {
                 variant="ghost"
                 size="icon"
                 className="text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 p-1"
+                onClick={() => alert("Coming Soon!")}
+                title="Coming Soon!"
               >
                 <MessageCircle className="h-4 w-4" />
               </Button>
@@ -135,6 +149,8 @@ export const RightSidebar: FC = () => {
             <div 
               key={space.group_id}
               className="group p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+              onClick={() => alert("Coming Soon!")}
+              title="Coming Soon!"
             >
               <div className="flex justify-between items-start mb-2">
                 <h4 className="font-medium text-sm group-hover:text-primary-600 dark:group-hover:text-primary-400">

@@ -58,7 +58,11 @@ const HomePage: FC = () => {
             </Button>
           </CreatePostDialog>
           
-          <Button className="rounded-full px-4 py-2 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-sm flex items-center hover:bg-green-100 dark:hover:bg-green-800/40">
+          <Button 
+            className="rounded-full px-4 py-2 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-sm flex items-center hover:bg-green-100 dark:hover:bg-green-800/40"
+            onClick={() => alert("Coming Soon!")}
+            title="Coming Soon!"
+          >
             <Camera className="mr-2 h-4 w-4" />
             Photo
           </Button>
@@ -120,6 +124,8 @@ const HomePage: FC = () => {
                 <Button 
                   variant="outline"
                   className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-sm hover:bg-gray-200 dark:hover:bg-gray-600"
+                  onClick={() => alert("Coming Soon!")}
+                  title="Coming Soon!"
                 >
                   Load More
                 </Button>

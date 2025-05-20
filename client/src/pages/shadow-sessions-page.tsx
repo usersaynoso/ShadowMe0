@@ -9,15 +9,31 @@ import { CreatePostDialog } from "@/components/create-post-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { ShadowSession, Post } from "@/types";
+import { ShadowSession, Post, User } from "@/types";
 import { format, parseISO, isToday, isTomorrow, isAfter, isBefore, addWeeks } from "date-fns";
 import { Loader2, Search, CalendarDays, Clock, Plus, CheckCircle, Globe, Users } from "lucide-react";
+import { Link } from "wouter";
 
 const ShadowSessionsPage: FC = () => {
   const { user } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [currentTime, setCurrentTime] = useState(new Date());
   const [openCreateDialog, setOpenCreateDialog] = useState(false);
+  
+  const createFallbackUser = (userId: string, displayName: string = "Unknown User"): User => ({
+    user_id: userId,
+    email: `${userId}@example.com`,
+    user_type: "user",
+    user_points: "0",
+    user_level: 1,
+    is_active: true,
+    created_at: new Date().toISOString(),
+    profile: {
+      display_name: displayName,
+      avatar_url: undefined,
+      bio: undefined,
+    },
+  });
   
   // Update current time every minute
   useEffect(() => {
@@ -188,11 +204,11 @@ const ShadowSessionsPage: FC = () => {
                   <CardContent className="pb-3">
                     <div className="flex items-center mb-3">
                       <AvatarWithEmotion 
-                        user={session.creator || { user_id: "", profile: { display_name: "Unknown" } }}
+                        user={session.creator || createFallbackUser(session.post?.author.user_id || "unknown_creator")}
                         size="sm"
                         className="mr-2"
                       />
-                      <span className="text-sm font-medium">{session.creator?.profile?.display_name}</span>
+                      <span className="text-sm font-medium">{session.creator?.profile?.display_name || "Unknown User"}</span>
                     </div>
                     <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
                       {session.post?.content || "No description"}
@@ -309,11 +325,11 @@ const ShadowSessionsPage: FC = () => {
                     <CardContent className="pb-3">
                       <div className="flex items-center mb-3">
                         <AvatarWithEmotion 
-                          user={session.creator || { user_id: "", profile: { display_name: "Unknown" } }}
+                          user={session.creator || createFallbackUser(session.post?.author.user_id || "unknown_creator")}
                           size="sm"
                           className="mr-2"
                         />
-                        <span className="text-sm font-medium">{session.creator?.profile?.display_name}</span>
+                        <span className="text-sm font-medium">{session.creator?.profile?.display_name || "Unknown User"}</span>
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
                         {session.post?.content || "No description"}
@@ -387,7 +403,7 @@ const ShadowSessionsPage: FC = () => {
                     Clear Search
                   </Button>
                 ) : (
-                  <Button onClick={() => document.querySelector('[data-value="upcoming"]')?.click()}>
+                  <Button onClick={() => (document.querySelector('[data-value="upcoming"]') as HTMLElement)?.click()}>
                     Browse Upcoming Sessions
                   </Button>
                 )}
@@ -409,11 +425,11 @@ const ShadowSessionsPage: FC = () => {
                     <CardContent className="pb-3">
                       <div className="flex items-center mb-3">
                         <AvatarWithEmotion 
-                          user={session.creator || { user_id: "", profile: { display_name: "Unknown" } }}
+                          user={session.creator || createFallbackUser(session.post?.author.user_id || "unknown_creator")}
                           size="sm"
                           className="mr-2"
                         />
-                        <span className="text-sm font-medium">{session.creator?.profile?.display_name}</span>
+                        <span className="text-sm font-medium">{session.creator?.profile?.display_name || "Unknown User"}</span>
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
                         {session.post?.content || "No description"}
@@ -445,12 +461,16 @@ const ShadowSessionsPage: FC = () => {
                     </CardContent>
                     <CardFooter>
                       {isSessionActive(session) ? (
-                        <Button className="w-full bg-green-600 hover:bg-green-700">
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          Join Now
-                        </Button>
+                        <Link href={`/shadow-sessions/${session.post_id}`}>
+                          <Button asChild className="w-full bg-green-600 hover:bg-green-700">
+                            <a>
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Join Now
+                            </a>
+                          </Button>
+                        </Link>
                       ) : (
-                        <Button variant="outline" className="w-full">
+                        <Button variant="outline" className="w-full" disabled>
                           <CheckCircle className="h-4 w-4 mr-2" />
                           Joined
                         </Button>
@@ -504,11 +524,11 @@ const ShadowSessionsPage: FC = () => {
                     <CardContent className="pb-3">
                       <div className="flex items-center mb-3">
                         <AvatarWithEmotion 
-                          user={session.creator || { user_id: "", profile: { display_name: "Unknown" } }}
+                          user={session.creator || createFallbackUser(session.post?.author.user_id || "unknown_creator")}
                           size="sm"
                           className="mr-2"
                         />
-                        <span className="text-sm font-medium">{session.creator?.profile?.display_name}</span>
+                        <span className="text-sm font-medium">{session.creator?.profile?.display_name || "Unknown User"}</span>
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
                         {session.post?.content || "No description"}
@@ -523,9 +543,11 @@ const ShadowSessionsPage: FC = () => {
                       </div>
                     </CardContent>
                     <CardFooter>
-                      <Button variant="outline" className="w-full">
-                        View Session
-                      </Button>
+                      <Link href={`/shadow-sessions/${session.post_id}`}>
+                         <Button variant="outline" className="w-full">
+                          View Details
+                        </Button>
+                      </Link>
                     </CardFooter>
                   </Card>
                 ))}

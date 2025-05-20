@@ -137,7 +137,13 @@ export const ShadowSessionCard: FC<ShadowSessionCardProps> = ({ post, emotions }
                   {getAudienceIcon()}
                   {getAudienceName()}
                 </span>
-                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-8 w-8 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                  onClick={() => alert("Coming Soon!")}
+                  title="Coming Soon!"
+                >
                   <MoreHorizontal size={16} />
                 </Button>
               </div>
@@ -195,6 +201,8 @@ export const ShadowSessionCard: FC<ShadowSessionCardProps> = ({ post, emotions }
               variant="outline"
               size="sm"
               className="rounded-md bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-600 py-1.5 text-xs font-medium"
+              onClick={() => alert("Coming Soon!")}
+              title="Coming Soon!"
             >
               Add to Calendar
             </Button>
@@ -247,6 +255,8 @@ export const ShadowSessionCard: FC<ShadowSessionCardProps> = ({ post, emotions }
             variant="ghost"
             size="sm"
             className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
+            onClick={() => alert("Coming Soon!")}
+            title="Coming Soon!"
           >
             <Heart className="mr-1.5 h-4 w-4" />
             <span className="text-xs">{post.reactions_count || 0}</span>
@@ -256,6 +266,8 @@ export const ShadowSessionCard: FC<ShadowSessionCardProps> = ({ post, emotions }
             variant="ghost"
             size="sm"
             className="flex items-center text-gray-500 hover:text-primary-600 dark:hover:text-primary-400 px-2"
+            onClick={() => alert("Coming Soon!")}
+            title="Coming Soon!"
           >
             <MessageCircle className="mr-1.5 h-4 w-4" />
             <span className="text-xs">0</span>
@@ -292,6 +304,8 @@ export const ShadowSessionCard: FC<ShadowSessionCardProps> = ({ post, emotions }
               variant="ghost"
               size="sm"
               className="absolute right-3 top-1/2 transform -translate-y-1/2 text-primary-600 dark:text-primary-400"
+              onClick={() => alert("Coming Soon!")}
+              title="Coming Soon!"
             >
               <Layers className="h-4 w-4" />
             </Button>

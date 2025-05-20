@@ -109,14 +109,26 @@ const ProfilePage: FC = () => {
                     Edit Profile
                   </Button>
                 </ProfileEditDialog>
-                <Button variant="outline" size="sm" className="rounded-full">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="rounded-full"
+                  onClick={() => alert("Coming Soon!")}
+                  title="Coming Soon!"
+                >
                   <Settings className="h-4 w-4 mr-1" />
                   Settings
                 </Button>
               </div>
             ) : (
               <div className="mt-4 md:mt-0 flex space-x-2">
-                <Button variant="default" size="sm" className="rounded-full">
+                <Button 
+                  variant="default" 
+                  size="sm" 
+                  className="rounded-full"
+                  onClick={() => alert("Coming Soon!")}
+                  title="Coming Soon!"
+                >
                   <MessageCircle className="h-4 w-4 mr-1" />
                   Message
                 </Button>
