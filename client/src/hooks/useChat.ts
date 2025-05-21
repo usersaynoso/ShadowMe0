@@ -210,40 +210,54 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
     
     // Listen for messagesRead event
     socket.on('messagesRead', (data) => {
-      console.log(`[WebSocket] Received messagesRead event for roomId: ${data.roomId}, read by user: ${data.readByUserId}`);
-      console.log(`[WebSocket] Messages that were read:`, data.messages);
-      
+      console.log(`[WebSocket] Received messagesRead event for roomId: ${data.roomId}, read by user: ${data.readByUserId}, affecting ${data.messages ? data.messages.length : 0} messages.`);
+      if (data.messages) { // Add a check for data.messages existence
+        console.log(`[WebSocket] Details of messages read:`, data.messages);
+      }
+
       if (data.roomId === roomId) {
-        // Update messages that have been read
         setMessages((prevMessages) => {
-          // Create a copy of messages
-          const updatedMessages = [...prevMessages];
-          
-          // Find messages from the current user that are now read
-          const messagesToUpdate = updatedMessages.filter(
-            msg => msg.isSender && 
-                  msg.sender_id === currentUserId && 
-                  !msg.isRead && 
-                  data.messages.some(m => m.message_id === msg.message_id)
-          );
-          
-          console.log(`[WebSocket] Found ${messagesToUpdate.length} messages to update isRead status`);
-          
-          // Update the isRead status
-          messagesToUpdate.forEach(msg => {
-            console.log(`[WebSocket] Updating message ${msg.message_id} isRead from ${msg.isRead} to true`);
-            msg.isRead = true;
+          let changed = false;
+          const updatedMessages = prevMessages.map(msg => {
+            // Ensure data.messages is an array and msg.message_id is defined
+            const messageInData = data.messages && Array.isArray(data.messages) && msg.message_id !== undefined ? 
+                                  data.messages.find(m => m.message_id === msg.message_id) : 
+                                  undefined;
+
+            if (messageInData) {
+              // Scenario 1: The current user has read these messages (affects unread count)
+              // This includes messages sent by others TO the current user, and messages sent BY the current user (e.g., read on another device)
+              if (data.readByUserId === currentUserId) {
+                if (!msg.isRead) {
+                  console.log(`[WebSocket] Marking message ${msg.message_id} as read for current user ${currentUserId}. Old isRead: ${msg.isRead}`);
+                  changed = true;
+                  return { ...msg, isRead: true };
+                }
+              }
+              // Scenario 2: A message SENT BY the current user has been read by SOMEONE ELSE (for "seen by" indicators)
+              // This check ensures msg.isSender and currentUserId match who sent it.
+              else if (msg.isSender && msg.sender_id === currentUserId && data.readByUserId !== currentUserId) {
+                 if (!msg.isRead) { 
+                    console.log(`[WebSocket] Marking message ${msg.message_id} (sent by current user ${currentUserId}) as read by ${data.readByUserId}. Old isRead: ${msg.isRead}`);
+                    changed = true;
+                    return { ...msg, isRead: true }; // Mark as read, could be for "seen by" display
+                }
+              }
+            }
+            return msg; // Return original message if no changes
           });
-          
-          // If we updated any messages, return the new array
-          if (messagesToUpdate.length > 0) {
-            console.log(`[WebSocket] Updated read status for ${messagesToUpdate.length} messages`);
-            return [...updatedMessages]; // Create a new array to trigger a re-render
+
+          if (changed) {
+            console.log(`[WebSocket] Read status updated for some messages. Triggering re-render.`);
+            // Ensure sorting remains consistent after updates
+            return updatedMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
           }
           
-          // No messages updated, return the original array
-          return prevMessages;
+          // console.log(`[WebSocket] No messages needed read status update for this event, or data.readByUserId (${data.readByUserId}) did not match currentUserId (${currentUserId}) for received messages.`);
+          return prevMessages; // No changes, return original array to avoid unnecessary re-render
         });
+      } else {
+        console.log(`[WebSocket] messagesRead event for different room (${data.roomId}), current room is ${roomId}. Ignoring.`);
       }
     });
 
