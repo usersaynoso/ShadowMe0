@@ -17,6 +17,7 @@ export interface ChatMessage {
   };
   isSender: boolean; // Determined on client-side
   timestamp: Date; // Could be redundant if created_at is a Date, or used for client-side sorting
+  isRead?: boolean; // Added to track read status
 }
 
 // Define a type for the raw message from API/Socket, before client-side processing
@@ -32,12 +33,14 @@ interface RawChatMessage {
     display_name?: string;
     avatar_url?: string;
   };
+  is_read?: boolean; // Added to track read status from backend
 }
 
 // Updated event interfaces to match server/websocket.ts more closely
 interface ServerToClientEvents {
   newMessage: (message: RawChatMessage) => void; // Server sends raw message
   newNotification: (data: { senderId: string, roomId?: string, message?: any }) => void; // Keep for other notifications
+  messagesRead: (data: { readByUserId: string, roomId: string, messages: any[] }) => void; // Add messagesRead event
   // We might need an error event from server if sendMessage fails for some reason
   // chatError: (data: { message: string }) => void;
 }
@@ -46,6 +49,7 @@ interface ClientToServerEvents {
   sendMessage: (data: { roomId: string; content: string; }) => void;
   joinRoom: (roomId: string) => void;
   leaveRoom: (roomId: string) => void;
+  markMessagesAsRead: (data: { roomId: string }) => void; // Add markMessagesAsRead event
 }
 
 const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'http://localhost:3000';
@@ -89,6 +93,7 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
             sender: msg.sender,
             timestamp: new Date(msg.created_at),
             isSender: msg.sender_id === currentUserId,
+            isRead: msg.is_read, // Assign isRead status
           };
         });
         
@@ -106,7 +111,7 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
 
 
   useEffect(() => {
-    if (!currentUserId || !roomId) { // Ensure roomId is also present before connecting for a specific chat context
+    if (!roomId || !currentUserId) { // Ensure roomId is also present before connecting for a specific chat context
       if (socketRef.current) {
         socketRef.current.disconnect();
         socketRef.current = null;
@@ -126,6 +131,8 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
       setIsConnected(true);
       // Join the specific chat room on connect
       socket.emit('joinRoom', roomId);
+      // Mark messages as read when joining a room
+      socket.emit('markMessagesAsRead', { roomId });
     });
 
     socket.on('disconnect', () => {
@@ -150,8 +157,9 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
           sender: message.sender, 
           timestamp: new Date(message.created_at),
           isSender: message.sender_id === currentUserId,
+          isRead: message.is_read, // Assign isRead status for new messages
         };
-        console.log("[WebSocket] Processed receivedMessage object (with .content):", receivedMessage);
+        console.log("[WebSocket] Processed receivedMessage object with isRead:", receivedMessage.isRead);
 
         setMessages((prevMessages) => {
           console.log('[WebSocket PM Current ID]', receivedMessage.message_id, 'Content:', receivedMessage.content); 
@@ -188,6 +196,45 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
       }
     });
     
+    // Listen for messagesRead event
+    socket.on('messagesRead', (data) => {
+      console.log(`[WebSocket] Received messagesRead event for roomId: ${data.roomId}, read by user: ${data.readByUserId}`);
+      console.log(`[WebSocket] Messages that were read:`, data.messages);
+      
+      if (data.roomId === roomId) {
+        // Update messages that have been read
+        setMessages((prevMessages) => {
+          // Create a copy of messages
+          const updatedMessages = [...prevMessages];
+          
+          // Find messages from the current user that are now read
+          const messagesToUpdate = updatedMessages.filter(
+            msg => msg.isSender && 
+                  msg.sender_id === currentUserId && 
+                  !msg.isRead && 
+                  data.messages.some(m => m.message_id === msg.message_id)
+          );
+          
+          console.log(`[WebSocket] Found ${messagesToUpdate.length} messages to update isRead status`);
+          
+          // Update the isRead status
+          messagesToUpdate.forEach(msg => {
+            console.log(`[WebSocket] Updating message ${msg.message_id} isRead from ${msg.isRead} to true`);
+            msg.isRead = true;
+          });
+          
+          // If we updated any messages, return the new array
+          if (messagesToUpdate.length > 0) {
+            console.log(`[WebSocket] Updated read status for ${messagesToUpdate.length} messages`);
+            return [...updatedMessages]; // Create a new array to trigger a re-render
+          }
+          
+          // No messages updated, return the original array
+          return prevMessages;
+        });
+      }
+    });
+
     // TODO: Handle 'newNotification' if it's relevant for in-app chat behavior beyond global notifications
     // e.g., if a new message in *another* room should trigger something in the current chat context (unlikely for this hook)
 
@@ -228,6 +275,7 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
       },
       isSender: true,
       timestamp: new Date(),
+      isRead: false, // Optimistically set to false for new messages
     };
 
     setMessages((prevMessages) => 
@@ -239,5 +287,15 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
     
   }, [roomId, currentUserId]); // Add currentUserId to dependencies if used for sender details
 
-  return { messages, sendMessage, isConnected, isLoadingMessages };
+  // Add function to mark messages as read
+  const markMessagesAsRead = useCallback(() => {
+    if (!currentUserId || !roomId || !socketRef.current) {
+      return;
+    }
+    
+    console.log(`Marking messages as read in room ${roomId}`);
+    socketRef.current.emit('markMessagesAsRead', { roomId });
+  }, [currentUserId, roomId]);
+
+  return { messages, sendMessage, isConnected, isLoadingMessages, markMessagesAsRead };
 }; 

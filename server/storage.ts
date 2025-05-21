@@ -1587,28 +1587,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createChatMessage(data: any): Promise<any> {
-    const [newMessage] = await db.insert(messages)
-      .values(data)
-      .returning();
-    
-    // Get message with sender info
-    const [messageWithSender] = await db.select({
-        message: messages,
-        sender: users,
-        profile: profiles
+    const [savedMessage] = await db.insert(messages)
+      .values({
+        chat_room_id: data.chat_room_id,
+        sender_id: data.sender_id,
+        recipient_id: data.recipient_id, // Can be null
+        body: data.body,
+        message_type: data.message_type || 'text',
+        // created_at is defaulted by DB
       })
-      .from(messages)
-      .innerJoin(users, eq(messages.sender_id, users.user_id))
-      .leftJoin(profiles, eq(users.user_id, profiles.user_id))
-      .where(eq(messages.message_id, newMessage.message_id));
+      .returning();
+
+    const senderDetails = await this.getUser(savedMessage.sender_id!);
     
-    // Return structured message
     return {
-      ...messageWithSender.message,
+      ...savedMessage,
       sender: {
-        ...messageWithSender.sender,
-        profile: messageWithSender.profile
-      }
+        user_id: senderDetails.user_id,
+        display_name: senderDetails.profile?.display_name || senderDetails.email,
+        avatar_url: senderDetails.profile?.avatar_url,
+      },
+      is_read: false, // Default for new messages, as they haven't been read yet
     };
   }
   
@@ -2371,7 +2370,6 @@ export class DatabaseStorage implements IStorage {
     try {
       console.log(`Fetching messages for room ${roomId}, user ${currentUserId}`);
       
-      // Verify the user is a member of this room
       const membership = await db
         .select()
         .from(chat_room_members)
@@ -2386,7 +2384,6 @@ export class DatabaseStorage implements IStorage {
         throw new Error("User is not a member of this chat room");
       }
 
-      // Fetch messages with sender info
       const messagesWithSender = await db
         .select({
           message: messages,
@@ -2403,23 +2400,54 @@ export class DatabaseStorage implements IStorage {
       
       console.log(`Retrieved ${messagesWithSender.length} messages for room ${roomId}`);
       
-      // Transform messages to match the expected structure in client/src/hooks/useChat.ts
-      const formattedMessages = messagesWithSender.map(msg => ({
-        message_id: msg.message.message_id,
-        room_id: roomId,
-        sender_id: msg.message.sender_id,
-        content: msg.message.body,
-        created_at: msg.message.created_at,
-        sender: {
-          user_id: msg.sender.user_id,
-          display_name: msg.profile?.display_name || msg.sender.email,
-          avatar_url: msg.profile?.avatar_url
-        },
-        isSender: msg.message.sender_id === currentUserId
-      }));
+      // Check if the current user has marked messages in this room as read at all
+      const hasReadRoom = await db
+        .select({ count: count() })
+        .from(notifications)
+        .where(and(
+          eq(notifications.recipient_user_id, currentUserId),
+          eq(notifications.entity_id, roomId),
+          eq(notifications.entity_type, 'chat_message'),
+          eq(notifications.event_type, 'message_sent'),
+          eq(notifications.is_read, true)
+        ))
+        .limit(1);
+
+      const userHasEverMarkedRoomAsRead = (hasReadRoom[0]?.count || 0) > 0;
+
+      const formattedMessages = messagesWithSender.map(msg => {
+        let isMessageReadByCurrentUser = false;
+        if (msg.message.sender_id !== currentUserId) {
+          // Message received by current user
+          // If the user has ever marked this room's messages as read, we assume older messages were part of that.
+          // This is an approximation. A more accurate system would store read-up-to timestamps.
+          if (userHasEverMarkedRoomAsRead) {
+            isMessageReadByCurrentUser = true; 
+          }
+        } else {
+          // Message sent by current user.
+          // Determining if all recipients have read it is complex and not implemented here.
+          // Defaulting to false for now, as per client expectation for "Read" status on own messages.
+          isMessageReadByCurrentUser = false; 
+        }
+        
+        return {
+          message_id: msg.message.message_id,
+          chat_room_id: msg.message.chat_room_id!, // messages table has chat_room_id
+          sender_id: msg.message.sender_id!,
+          body: msg.message.body!,
+          created_at: msg.message.created_at!, 
+          sender: {
+            user_id: msg.sender.user_id,
+            display_name: msg.profile?.display_name || msg.sender.email,
+            avatar_url: msg.profile?.avatar_url
+          },
+          is_read: isMessageReadByCurrentUser, 
+        };
+      });
       
-      console.log("Formatted messages:", formattedMessages.length > 0 ? formattedMessages[0] : "No messages");
-      return formattedMessages;
+      console.log("Formatted messages (first one if any):", formattedMessages.length > 0 ? formattedMessages[0] : "No messages");
+      return formattedMessages.sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     } catch (error) {
       console.error(`Error fetching chat room messages for roomId ${roomId}:`, error);
       throw error;
@@ -2571,6 +2599,38 @@ export class DatabaseStorage implements IStorage {
       profile: m.profile,
       role: m.role
     }));
+  }
+
+  async createNotification(data: {
+    recipient_user_id: string;
+    actor_user_id: string;
+    event_type: string;
+    entity_id: string;
+    entity_type: string;
+  }): Promise<any> {
+    try {
+      // Set default values for notification
+      const notificationData = {
+        ...data,
+        title: `New notification: ${data.event_type}`, // Add a default title
+        body: data.event_type === 'message_sent' 
+              ? 'You received a new message'
+              : `New ${data.entity_type} notification`, // Add a reasonable body
+        link: data.entity_type === 'chat_message' 
+              ? `/messages/${data.entity_id}` 
+              : null, // Add a reasonable link if applicable
+        is_read: false,
+      };
+      
+      const [savedNotification] = await db.insert(notifications)
+        .values(notificationData)
+        .returning();
+        
+      return savedNotification;
+    } catch (error) {
+      console.error('Error creating notification:', error);
+      throw error;
+    }
   }
 }
 

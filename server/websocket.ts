@@ -9,12 +9,14 @@ interface ServerToClientEvents {
   receiveMessage: (message: { user: string; text: string; media?: string[], recipientId?: string, roomId?: string }) => void;
   newNotification: (data: { senderId: string, roomId?: string, message?: any }) => void;
   newMessage: (message: any) => void;
+  messagesRead: (data: { readByUserId: string, roomId: string, messages: any[] }) => void;
 }
 
 interface ClientToServerEvents {
   sendMessage: (data: { roomId: string; content: string; /* remove recipientId, media, messageId as they are not in the new spec */ }) => void;
   joinRoom: (roomId: string) => void;
   leaveRoom: (roomId: string) => void;
+  markMessagesAsRead: (data: { roomId: string }) => void;
 }
 
 interface InterServerEvents {
@@ -211,6 +213,53 @@ export const initWebSocketServer = (httpServer: HttpServer) => {
           console.error('Error processing sendMessage:', error);
           // Optionally, emit an error back to the sender
           // socket.emit('error', { message: "Failed to send message. Please try again." });
+        }
+      });
+
+      // Add a listener for markRoomMessagesAsRead route to handle the WebSocket part of it
+      socket.on('markMessagesAsRead', async (data: { roomId: string }) => {
+        try {
+          const roomId = data.roomId;
+          const userId = socket.data.userId;
+          
+          console.log(`User ${userId} marked messages as read in room ${roomId}`);
+          
+          // We'll broadcast to all *other* members of the room (senders of messages) 
+          // that their messages have been read by this user
+          const roomMembers = await storage.getChatRoomMembers(roomId);
+          if (roomMembers) {
+            // Get all messages in the room that were sent to this user
+            const recentMessages = await storage.getChatRoomMessages(roomId, userId, 50, 0);
+            
+            // For each sender, update their messages' read status
+            const senderIds = Array.from(
+              new Set(recentMessages
+                .filter(msg => msg.sender_id !== userId) // Only include messages not from current user
+                .map(msg => msg.sender_id))
+            );
+            
+            // Broadcast to each sender that their messages were read
+            for (const senderId of senderIds) {
+              // Update their messages to show as read
+              const updatedMessages = recentMessages
+                .filter(msg => msg.sender_id === senderId)
+                .map(msg => ({
+                  ...msg,
+                  is_read: true // Mark as read
+                }));
+              
+              // Notify the original sender that their message(s) have been read
+              io.to(senderId).emit('messagesRead', {
+                readByUserId: userId,
+                roomId: roomId,
+                messages: updatedMessages
+              });
+              
+              console.log(`Notified sender ${senderId} that their messages in room ${roomId} were read by ${userId}`);
+            }
+          }
+        } catch (error) {
+          console.error('Error processing markMessagesAsRead:', error);
         }
       });
 

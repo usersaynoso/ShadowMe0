@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ChatMessage } from '../../hooks/useChat'; // Adjust path as needed
 
 interface MessageItemProps {
@@ -7,7 +7,14 @@ interface MessageItemProps {
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({ message, currentUserId }) => {
-  const { sender, content, timestamp, isSender } = message;
+  const { sender, content, timestamp, isSender, isRead } = message;
+
+  // Debug log when component renders
+  useEffect(() => {
+    if (isSender) {
+      console.log(`[MessageItem] Rendering message ${message.message_id}: isSender=${isSender}, isRead=${isRead}`);
+    }
+  }, [message, isSender, isRead]);
 
   const formatTimestamp = (date: Date) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -42,13 +49,20 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, currentUserId }) => 
           )}
           {content && <p className="text-sm whitespace-pre-wrap">{content}</p>}
           {/* Media rendering would go here if ChatMessage included processed media URLs */}
-          <p className={`text-xs mt-1 ${
-            isSender 
-              ? 'text-blue-200 dark:text-blue-300' 
-              : 'text-gray-500 dark:text-gray-400'
-          } ${isSender ? 'text-right' : 'text-left'}`}>
-            {formatTimestamp(timestamp)}
-          </p>
+          <div className={`flex items-center justify-${isSender ? 'end' : 'start'} mt-1`}>
+            <span className={`text-xs ${
+              isSender 
+                ? 'text-blue-200 dark:text-blue-300' 
+                : 'text-gray-500 dark:text-gray-400'
+            }`}>
+              {formatTimestamp(timestamp)}
+            </span>
+            {isSender && (
+              <span className={`ml-2 text-xs font-medium ${isRead ? 'text-green-300 dark:text-green-400' : 'text-gray-400 dark:text-gray-500'}`}>
+                {isRead ? '✓ Read' : 'Sent'}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>

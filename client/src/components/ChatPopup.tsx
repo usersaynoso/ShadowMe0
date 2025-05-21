@@ -25,8 +25,9 @@ export const ChatPopup: React.FC<ChatPopupProps> = ({
   roomId, 
   otherParticipant 
 }) => {
-  const { messages, sendMessage, isConnected, isLoadingMessages } = useChat(currentUserId, roomId);
+  const { messages, sendMessage, isConnected, isLoadingMessages, markMessagesAsRead: wsMarkMessagesAsRead } = useChat(currentUserId, roomId);
   const [inputText, setInputText] = useState('');
+  const [isWindowFocused, setIsWindowFocused] = useState(document.hasFocus()); // Initialize with current focus state
   const messagesEndRef = useRef<null | HTMLDivElement>(null);
   // Media handling state - kept for UI, but not fully implemented in sendMessage yet
   const [selectedMedia, setSelectedMedia] = useState<File[]>([]); 
@@ -51,13 +52,31 @@ export const ChatPopup: React.FC<ChatPopupProps> = ({
 
   useEffect(scrollToBottom, [messages]);
 
+  // Effect to track window focus/blur
+  useEffect(() => {
+    const handleFocus = () => setIsWindowFocused(true);
+    const handleBlur = () => setIsWindowFocused(false);
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+
+    // Set initial state based on document.hasFocus()
+    setIsWindowFocused(document.hasFocus());
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
+
   const markMessagesAsRead = useCallback(async () => {
-    if (!roomId || !currentUserId) return;
+    if (!roomId || !currentUserId || !isWindowFocused) return; // Check isWindowFocused
     try {
-      console.log(`Attempting to mark messages as read for room: ${roomId}`);
+      console.log(`Attempting to mark messages as read for room: ${roomId} (window focused: ${isWindowFocused})`);
       
-      // Use the raw axios approach rather than the apiClient to better handle errors
+      // Call both the API endpoint and WebSocket function to mark messages as read
       await apiClient.post(`/chat/rooms/${roomId}/mark-read`);
+      wsMarkMessagesAsRead(); // Call the WebSocket markMessagesAsRead function
       
       console.log(`Successfully marked messages as read for room: ${roomId}`);
     } catch (error: any) {
@@ -79,26 +98,27 @@ export const ChatPopup: React.FC<ChatPopupProps> = ({
         console.error('Request error:', error.message);
       }
       
-      // Don't throw the error - we want the UI to continue functioning even if this fails
+      // Still try the WebSocket method if the API fails
+      wsMarkMessagesAsRead();
     }
-  }, [roomId, currentUserId]);
+  }, [roomId, currentUserId, wsMarkMessagesAsRead, isWindowFocused]); // Add isWindowFocused to dependencies
 
   useEffect(() => {
-    if (isOpen && roomId) {
+    if (isOpen && roomId && isWindowFocused) { // Check isWindowFocused
       markMessagesAsRead();
     }
-  }, [isOpen, roomId, markMessagesAsRead]);
+  }, [isOpen, roomId, markMessagesAsRead, isWindowFocused]); // Add isWindowFocused to dependencies
 
   // Mark as read when new messages arrive for the current open room
   useEffect(() => {
-    if (isOpen && roomId && messages.length > 0) {
+    if (isOpen && roomId && messages.length > 0 && isWindowFocused) { // Check isWindowFocused
       // Check if the last message is not from the current user and the chat is open
       const lastMessage = messages[messages.length - 1];
       if (lastMessage && !lastMessage.isSender) {
         markMessagesAsRead();
       }
     }
-  }, [messages, isOpen, roomId, markMessagesAsRead]);
+  }, [messages, isOpen, roomId, markMessagesAsRead, isWindowFocused]); // Add isWindowFocused to dependencies
 
 
   const handleSendMessage = () => {
