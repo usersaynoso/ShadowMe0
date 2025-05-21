@@ -11,6 +11,7 @@ import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import cors from "cors";
 import adminRoutes from "./adminRoutes"; // Added import for admin routes
+import { getIO } from "./websocket"; // Import getIO function
 
 // Configure multer for file uploads
 const upload = multer({
@@ -29,15 +30,23 @@ const upload = multer({
     }
   }),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB max file size
+    fileSize: 25 * 1024 * 1024, // 25MB max file size
   },
   fileFilter: (req, file, cb) => {
-    // Only accept images
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+    // Accept images and videos
+    const allowedTypes = [
+      'image/jpeg', 
+      'image/png', 
+      'image/gif', 
+      'image/webp',
+      'video/mp4',
+      'video/quicktime',
+      'video/webm'
+    ];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Invalid file type. Only JPEG, PNG and GIF are allowed.') as any);
+      cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WEBP images and MP4, MOV, WEBM videos are allowed.') as any);
     }
   }
 });
@@ -1575,6 +1584,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "An unexpected error occurred. Please try again.", 
         error: errorMessage
       });
+    }
+  });
+
+  // Chat message with media upload
+  app.post('/api/chat/messages/media', isAuthenticated, upload.array('media', 5), async (req, res) => {
+    try {
+      const { roomId, content } = req.body;
+      const userId = req.user!.user_id;
+      
+      if (!roomId) {
+        return res.status(400).json({ error: 'Room ID is required' });
+      }
+      
+      // Check if user is a member of the chat room
+      const isMember = await storage.isUserChatRoomMember(roomId, userId);
+      if (!isMember) {
+        return res.status(403).json({ error: 'You are not a member of this chat room' });
+      }
+      
+      // Handle media files
+      const mediaItems = [];
+      if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+        for (const file of req.files) {
+          try {
+            // Determine media type based on mimetype
+            const mediaType = file.mimetype.startsWith('image/') ? 'image' : 'video';
+            
+            // Upload to storage
+            const mediaUrl = await storage.uploadChatMedia(
+              file.path,
+              file.originalname,
+              roomId,
+              userId
+            );
+            
+            mediaItems.push({
+              url: mediaUrl,
+              type: mediaType
+            });
+          } catch (error) {
+            console.error('Error uploading chat media file:', error);
+            // Continue with other files even if one fails
+          }
+        }
+      }
+      
+      // Create the message with media
+      const message = await storage.createChatMessage({
+        chat_room_id: roomId,
+        sender_id: userId,
+        body: content || '',
+        message_type: mediaItems.length > 0 ? 'media' : 'text',
+        media: mediaItems.length > 0 ? mediaItems : undefined
+      });
+      
+      // Get the WebSocket server instance from httpServer
+      const io = getIO();
+      
+      // Broadcast to all in the room
+      io.to(roomId).emit('newMessage', message);
+      
+      // Notify other room members
+      const roomMembers = await storage.getChatRoomMembers(roomId);
+      if (roomMembers) {
+        for (const member of roomMembers) {
+          if (member.user_id !== userId) { // Don't notify the sender
+            // Emit notification to the user
+            io.to(member.user_id).emit('newNotification', { 
+              senderId: userId, 
+              roomId: roomId,
+              message: message
+            });
+            
+            // Persist notification in database
+            await storage.createNotification({
+              recipient_user_id: member.user_id,
+              actor_user_id: userId,
+              event_type: 'message_sent',
+              entity_id: roomId,
+              entity_type: 'chat_message',
+            });
+          }
+        }
+      }
+      
+      res.status(201).json(message);
+    } catch (error) {
+      console.error('Error sending message with media:', error);
+      res.status(500).json({ error: 'Failed to send message with media' });
     }
   });
 

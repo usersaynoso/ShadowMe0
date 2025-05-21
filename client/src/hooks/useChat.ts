@@ -18,6 +18,11 @@ export interface ChatMessage {
   isSender: boolean; // Determined on client-side
   timestamp: Date; // Could be redundant if created_at is a Date, or used for client-side sorting
   isRead?: boolean; // Added to track read status
+  media?: {
+    url: string;
+    type: string; // 'image' or 'video'
+    thumbnailUrl?: string;
+  }[];
 }
 
 // Define a type for the raw message from API/Socket, before client-side processing
@@ -34,6 +39,11 @@ interface RawChatMessage {
     avatar_url?: string;
   };
   is_read?: boolean; // Added to track read status from backend
+  media?: {
+    url: string;
+    type: string;
+    thumbnailUrl?: string;
+  }[];
 }
 
 // Updated event interfaces to match server/websocket.ts more closely
@@ -94,6 +104,7 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
             timestamp: new Date(msg.created_at),
             isSender: msg.sender_id === currentUserId,
             isRead: msg.is_read, // Assign isRead status
+            media: msg.media, // Include media if present
           };
         });
         
@@ -158,6 +169,7 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
           timestamp: new Date(message.created_at),
           isSender: message.sender_id === currentUserId,
           isRead: message.is_read, // Assign isRead status for new messages
+          media: message.media, // Include media if present
         };
         console.log("[WebSocket] Processed receivedMessage object with isRead:", receivedMessage.isRead);
 
@@ -249,9 +261,9 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
     };
   }, [currentUserId, roomId]); // Re-run effect if roomId changes
 
-  const sendMessage = useCallback((content: string) => {
-    if (!currentUserId || !roomId || content.trim() === '') {
-      console.warn('Cannot send message: missing user, room, or empty content.');
+  const sendMessage = useCallback(async (content: string, mediaFiles?: File[]) => {
+    if (!currentUserId || !roomId || (content.trim() === '' && (!mediaFiles || mediaFiles.length === 0))) {
+      console.warn('Cannot send message: missing user, room, or empty content with no media.');
       return;
     }
     if (!socketRef.current) {
@@ -260,7 +272,7 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
         return;
     }
 
-    // Optimistic update
+    // Optimistic update with temp ID
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const optimisticMessage: ChatMessage = {
       message_id: tempId, // Temporary ID
@@ -278,6 +290,51 @@ export const useChat = (currentUserId: string | null, roomId: string | null) => 
       isRead: false, // Optimistically set to false for new messages
     };
 
+    // Handle media files if provided
+    if (mediaFiles && mediaFiles.length > 0) {
+      try {
+        // Create FormData object for upload
+        const formData = new FormData();
+        formData.append('roomId', roomId);
+        formData.append('content', content.trim());
+        
+        // Attach all media files
+        mediaFiles.forEach(file => {
+          formData.append('media', file);
+        });
+        
+        // Set temp media array for optimistic update
+        optimisticMessage.media = mediaFiles.map(file => ({
+          url: URL.createObjectURL(file),
+          type: file.type.startsWith('image/') ? 'image' : 'video',
+        }));
+        
+        // Add message to UI first (optimistic)
+        setMessages((prevMessages) => 
+          [...prevMessages, optimisticMessage].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+        );
+        
+        // Send via API instead of socket for media uploads
+        const response = await apiClient.post(`/chat/messages/media`, formData);
+        console.log('Media message sent via API:', response);
+        
+        // Clean up object URLs
+        if (optimisticMessage.media) {
+          optimisticMessage.media.forEach(media => {
+            if (media.url && media.url.startsWith('blob:')) {
+              URL.revokeObjectURL(media.url);
+            }
+          });
+        }
+        
+        return;
+      } catch (error) {
+        console.error('Failed to upload media:', error);
+        // Continue with text-only message if media upload fails
+      }
+    }
+
+    // For text-only messages, use socket
     setMessages((prevMessages) => 
       [...prevMessages, optimisticMessage].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
     );

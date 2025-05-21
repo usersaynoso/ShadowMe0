@@ -28,8 +28,19 @@ interface SocketData {
   displayName?: string; // Store displayName if available after auth
 }
 
+// Socket.IO server instance reference
+let io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
+
+// Getter function to access the Socket.IO server instance
+export const getIO = (): Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData> => {
+  if (!io) {
+    throw new Error('Socket.IO server not initialized');
+  }
+  return io;
+};
+
 export const initWebSocketServer = (httpServer: HttpServer) => {
-  const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
+  io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
     cors: {
       origin: [process.env.CLIENT_URL || "http://localhost:5173", "http://localhost:3000"],
       methods: ["GET", "POST"]

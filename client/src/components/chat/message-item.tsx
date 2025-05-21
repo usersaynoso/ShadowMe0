@@ -7,7 +7,7 @@ interface MessageItemProps {
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({ message, currentUserId }) => {
-  const { sender, content, timestamp, isSender, isRead } = message;
+  const { sender, content, timestamp, isSender, isRead, media } = message;
 
   // Debug log when component renders
   useEffect(() => {
@@ -22,6 +22,34 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, currentUserId }) => 
 
   // Fallback for display name if profile info isn't fully populated yet
   const displayName = sender?.display_name || sender?.user_id || 'User'; 
+
+  // Render media content
+  const renderMedia = () => {
+    if (!media || media.length === 0) return null;
+    
+    return (
+      <div className="mt-2 space-y-2">
+        {media.map((item, index) => (
+          <div key={index} className="rounded-md overflow-hidden">
+            {item.type === 'image' ? (
+              <img 
+                src={item.url} 
+                alt="Shared image" 
+                className="max-w-full max-h-[300px] object-contain" 
+              />
+            ) : item.type === 'video' ? (
+              <video 
+                src={item.url} 
+                controls 
+                className="max-w-full max-h-[300px]" 
+                preload="metadata"
+              />
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <div className={`flex mb-2 ${isSender ? 'justify-end' : 'justify-start'}`}>
@@ -48,7 +76,10 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, currentUserId }) => 
             <p className="text-xs font-semibold mb-1 text-gray-600 dark:text-gray-400">{displayName}</p>
           )}
           {content && <p className="text-sm whitespace-pre-wrap">{content}</p>}
-          {/* Media rendering would go here if ChatMessage included processed media URLs */}
+          
+          {/* Render media content */}
+          {renderMedia()}
+          
           <div className={`flex items-center justify-${isSender ? 'end' : 'start'} mt-1`}>
             <span className={`text-xs ${
               isSender 

@@ -126,9 +126,11 @@ export const ChatPopup: React.FC<ChatPopupProps> = ({
       console.error("Cannot send message, roomId is null");
       return;
     }
-    if (inputText.trim() === '' /* && selectedMedia.length === 0 */) return; // Media sending not fully wired up yet
     
-    sendMessage(inputText);
+    // Don't send if both text and media are empty
+    if (inputText.trim() === '' && selectedMedia.length === 0) return;
+    
+    sendMessage(inputText, selectedMedia);
     setInputText('');
     setSelectedMedia([]);
     if (fileInputRef.current) {

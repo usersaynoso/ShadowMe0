@@ -25,14 +25,30 @@ const bucketsToCreate = [
   {
     id: 'post-media',
     public: true,
-    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-    maxFileSize: 5 * 1024 * 1024 // 5MB
+    allowedMimeTypes: [
+      'image/jpeg', 
+      'image/png', 
+      'image/gif', 
+      'image/webp',
+      'video/mp4',
+      'video/quicktime',
+      'video/webm'
+    ],
+    maxFileSize: 25 * 1024 * 1024 // Increased to 25MB for videos
   },
   {
     id: 'shadow-session-media',
     public: true,
-    allowedMimeTypes: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-    maxFileSize: 10 * 1024 * 1024 // 10MB
+    allowedMimeTypes: [
+      'image/jpeg', 
+      'image/png', 
+      'image/gif', 
+      'image/webp',
+      'video/mp4',
+      'video/quicktime',
+      'video/webm'
+    ],
+    maxFileSize: 25 * 1024 * 1024 // Increased to 25MB for videos
   },
   {
     id: 'user-avatars',

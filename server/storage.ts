@@ -135,6 +135,12 @@ export interface IStorage {
 
   // Add to the interface definition
   markNotificationsFromSenderAsRead(recipientUserId: string, senderId: string, roomId?: string): Promise<void>;
+
+  // Upload chat media to Supabase Storage
+  uploadChatMedia(filePath: string, fileName: string, roomId: string, userId: string): Promise<string>;
+
+  // Check if a user is a member of a chat room
+  isUserChatRoomMember(roomId: string, userId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2072,6 +2078,8 @@ export class DatabaseStorage implements IStorage {
       'webp': 'image/webp',
       'pdf': 'application/pdf',
       'mp4': 'video/mp4',
+      'mov': 'video/quicktime',
+      'webm': 'video/webm',
       'mp3': 'audio/mpeg'
     };
     
@@ -2609,6 +2617,64 @@ export class DatabaseStorage implements IStorage {
       profile: m.profile,
       role: m.role
     }));
+  }
+
+  // Upload chat media to Supabase Storage
+  async uploadChatMedia(filePath: string, fileName: string, roomId: string, userId: string): Promise<string> {
+    try {
+      const fileExt = fileName.split('.').pop();
+      const timestamp = Date.now();
+      const uniqueFileName = `chat_${roomId}_${userId}_${timestamp}.${fileExt}`;
+      
+      // Create a new bucket for chat media if not defined yet
+      const bucketName = 'chat-media';
+      
+      // Try to get the bucket
+      const { data: buckets } = await supabase.storage.listBuckets();
+      const bucketExists = buckets?.some(bucket => bucket.id === bucketName);
+      
+      // Create the bucket if it doesn't exist
+      if (!bucketExists) {
+        await supabase.storage.createBucket(bucketName, {
+          public: true,
+          fileSizeLimit: 25 * 1024 * 1024
+        });
+        console.log(`Created new bucket: ${bucketName}`);
+      }
+      
+      return await this.uploadFileToSupabase(
+        filePath,
+        fileName,
+        bucketName,
+        uniqueFileName
+      );
+    } catch (error) {
+      console.error("Error uploading chat media:", error);
+      throw error;
+    }
+  }
+
+  // Check if a user is a member of a chat room
+  async isUserChatRoomMember(roomId: string, userId: string): Promise<boolean> {
+    if (!roomId || !userId) {
+      return false;
+    }
+    
+    try {
+      const membership = await db
+        .select({ user_id: chat_room_members.user_id })
+        .from(chat_room_members)
+        .where(and(
+          eq(chat_room_members.chat_room_id, roomId),
+          eq(chat_room_members.user_id, userId)
+        ))
+        .limit(1);
+      
+      return membership.length > 0;
+    } catch (error) {
+      console.error(`Error checking if user ${userId} is a member of chat room ${roomId}:`, error);
+      return false;
+    }
   }
 }
 
