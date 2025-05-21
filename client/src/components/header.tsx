@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import { NotificationBell } from '@/components/ui/notification-bell';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
+import { MessageNotificationBadge } from '@/components/ui/message-notification-badge';
 
 export const Header: FC = () => {
   const [location] = useLocation();
@@ -37,7 +38,7 @@ export const Header: FC = () => {
 
   const navItems = [
     { href: "/", icon: Home, label: "Home" },
-    { href: "/messages", icon: MessageCircle, label: "Messages" },
+    { href: "/messages", icon: MessageCircle, label: "Messages", hasBadge: true },
     { href: "/connections", icon: Users, label: "Connections" },
     { href: "/circles", icon: UserCircle, label: "Circles" },
     { href: "/spaces", icon: Sparkles, label: "Spaces" },
@@ -65,12 +66,15 @@ export const Header: FC = () => {
         <nav className="hidden md:flex items-center space-x-6">
           {navItems.map(item => (
             <Link key={item.href} href={item.href} className={cn(
-              "flex items-center font-medium cursor-pointer",
+              "flex items-center font-medium cursor-pointer relative",
               location === item.href 
                 ? "text-primary-600 dark:text-primary-400" 
                 : "text-gray-500 hover:text-primary-600 dark:hover:text-primary-400"
             )}>
-              <item.icon className="mr-1 h-4 w-4" />
+              <div className="relative">
+                <item.icon className="mr-1 h-4 w-4" />
+                {/* {item.hasBadge && <MessageNotificationBadge />} */}
+              </div>
               <span>{item.label}</span>
             </Link>
           ))}

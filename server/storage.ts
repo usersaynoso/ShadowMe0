@@ -131,7 +131,7 @@ export interface IStorage {
   getGroupMembers(groupId: string): Promise<any[]>;
 
   // Add to the interface definition
-  getUnreadMessageSenders(userId: string): Promise<any[]>;
+  getUnreadMessageSenders(userId: string): Promise<Record<string, number>>;
 
   // Add to the interface definition
   markNotificationsFromSenderAsRead(recipientUserId: string, senderId: string, roomId?: string): Promise<void>;
@@ -2081,7 +2081,7 @@ export class DatabaseStorage implements IStorage {
   // Notification methods
   async createNotification(notification: InsertNotification): Promise<Notification> {
     const [newNotification] = await db.insert(notifications)
-      .values(notification)
+      .values(notification) // Directly use the InsertNotification object
       .returning();
     
     return newNotification;
@@ -2230,26 +2230,36 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Add to the interface definition
-  async getUnreadMessageSenders(userId: string): Promise<any[]> {
+  async getUnreadMessageSenders(userId: string): Promise<Record<string, number>> {
     try {
       // Find users who have sent unread message notifications to this user
+      // and count the number of unread messages for each sender
       const result = await db
         .select({
           actor_user_id: notifications.actor_user_id,
+          unread_count: count(notifications.notification_id)
         })
         .from(notifications)
         .where(and(
           eq(notifications.recipient_user_id, userId),
           eq(notifications.event_type, 'message_sent'),
-          eq(notifications.is_read, false)
+          eq(notifications.is_read, false),
+          isNotNull(notifications.actor_user_id) // Ensure actor_user_id is not null
         ))
         .groupBy(notifications.actor_user_id);
       
-      // Extract the user_ids of senders
-      return result.map(row => row.actor_user_id).filter(id => id !== null);
+      // Transform the result into a Record<string, number>
+      const unreadSendersMap: Record<string, number> = {};
+      result.forEach(row => {
+        if (row.actor_user_id) { // Check if actor_user_id is not null before using it
+          unreadSendersMap[row.actor_user_id] = row.unread_count;
+        }
+      });
+      
+      return unreadSendersMap;
     } catch (error) {
       console.error("Error getting unread message senders:", error);
-      return [];
+      return {}; // Return an empty object in case of an error
     }
   }
 
@@ -2599,38 +2609,6 @@ export class DatabaseStorage implements IStorage {
       profile: m.profile,
       role: m.role
     }));
-  }
-
-  async createNotification(data: {
-    recipient_user_id: string;
-    actor_user_id: string;
-    event_type: string;
-    entity_id: string;
-    entity_type: string;
-  }): Promise<any> {
-    try {
-      // Set default values for notification
-      const notificationData = {
-        ...data,
-        title: `New notification: ${data.event_type}`, // Add a default title
-        body: data.event_type === 'message_sent' 
-              ? 'You received a new message'
-              : `New ${data.entity_type} notification`, // Add a reasonable body
-        link: data.entity_type === 'chat_message' 
-              ? `/messages/${data.entity_id}` 
-              : null, // Add a reasonable link if applicable
-        is_read: false,
-      };
-      
-      const [savedNotification] = await db.insert(notifications)
-        .values(notificationData)
-        .returning();
-        
-      return savedNotification;
-    } catch (error) {
-      console.error('Error creating notification:', error);
-      throw error;
-    }
   }
 }
 

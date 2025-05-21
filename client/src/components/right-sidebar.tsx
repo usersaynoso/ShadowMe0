@@ -10,6 +10,7 @@ import { MessageCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { ChatPopup } from "./ChatPopup";
 import io, { Socket } from 'socket.io-client';
+import { MessageNotificationBadge } from '@/components/ui/message-notification-badge';
 
 const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'http://localhost:3000';
 
@@ -56,6 +57,19 @@ export const RightSidebar: FC = () => {
   const [selectedRecipient, setSelectedRecipient] = useState<User | null>(null);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
   const socketRef = useRef<Socket<SidebarSocketEvents, any> | null>(null);
+  // Add direct state tracking for unread messages
+  const [localUnreadCounts, setLocalUnreadCounts] = useState<Record<string, number>>(() => {
+    // Initialize from localStorage if available
+    try {
+      const saved = localStorage.getItem('unreadMessageCounts');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      console.error('[RightSidebar] Error loading unread counts from localStorage:', e);
+      return {};
+    }
+  });
+  // Add a state for direct messages check
+  const [directMessageCheck, setDirectMessageCheck] = useState<Record<string, number>>({});
 
   // Get connection suggestions
   const { data: suggestions = [] } = useQuery<User[]>({
@@ -72,11 +86,138 @@ export const RightSidebar: FC = () => {
     queryKey: ['/api/user/connections/online'],
   });
 
-  // Get unread message sender IDs
-  const { data: unreadMessageSenderIds = [] } = useQuery<string[]>({
+  // Get unread message sender counts
+  const { data: unreadSendersMap = {} as Record<string, number>, isLoading: isLoadingUnreadMap, error: unreadMapError, refetch: refetchUnreadCounts } = useQuery<Record<string, number>>({
     queryKey: ['/api/notifications/unread-message-senders'],
     enabled: !!auth.user, // Only fetch if user is authenticated
+    staleTime: 10 * 1000, // Consider data stale after 10 seconds
+    refetchOnMount: true, // Always refetch on mount
+    refetchOnWindowFocus: true, // Refetch when the window gets focus
   });
+
+  // Log whenever component renders to check our state
+  console.log('[RightSidebar MOUNT DEBUG] Current state:', { 
+    unreadSendersMap,
+    localUnreadCounts,
+    isLoadingUnreadMap,
+    hasError: !!unreadMapError,
+    onlineConnectionsCount: onlineConnections.length
+  });
+
+  // Actively fetch unread counts on component mount
+  useEffect(() => {
+    if (auth.user) {
+      console.log('[RightSidebar] Component mounted, explicitly fetching unread counts...');
+      refetchUnreadCounts();
+    }
+  }, []); // Empty dependency array means this runs once on mount
+  
+  // Separate effect for checking direct messages after online connections is populated
+  useEffect(() => {
+    if (!auth.user || onlineConnections.length === 0) {
+      console.log('[RightSidebar] Skipping direct message check - no user or no online connections');
+      return;
+    }
+    
+    console.log(`[RightSidebar] Running direct message check for ${onlineConnections.length} connections`);
+    
+    // Direct API call to check messages
+    const checkDirectMessages = async () => {
+      try {
+        console.log('[RightSidebar] Making direct API call to check for unread messages...');
+        
+        // For each online connection, check if we have a chat room with them
+        for (const connection of onlineConnections) {
+          try {
+            // First try to get or create a DM room with this user
+            const roomResponse = await apiRequest(
+              'POST',
+              `/api/chat/dm/${connection.user_id}`
+            );
+            
+            if (!roomResponse.ok) {
+              console.error(`[RightSidebar] Failed to get chat room for ${connection.profile?.display_name}`);
+              continue;
+            }
+            
+            const roomData = await roomResponse.json();
+            console.log(`[RightSidebar] Got room data for ${connection.profile?.display_name}:`, roomData);
+            
+            if (!roomData || !roomData.chat_room_id) {
+              console.error(`[RightSidebar] Invalid room data for ${connection.profile?.display_name}`);
+              continue;
+            }
+            
+            // Now fetch messages for this room
+            const messagesResponse = await apiRequest(
+              'GET',
+              `/api/chat/rooms/${roomData.chat_room_id}/messages`
+            );
+            
+            if (!messagesResponse.ok) {
+              console.error(`[RightSidebar] Failed to get messages for room ${roomData.chat_room_id}`);
+              continue;
+            }
+            
+            const messages = await messagesResponse.json();
+            console.log(`[RightSidebar] Got ${messages.length} messages for room with ${connection.profile?.display_name}`);
+            
+            if (Array.isArray(messages)) {
+              // Log the first few messages for debugging
+              messages.slice(0, 3).forEach((msg, index) => {
+                console.log(`[RightSidebar] Message ${index}: sender_id=${msg.sender_id}, recipient_id=${msg.recipient_id}, is_read=${msg.is_read}, content=${msg.body?.substring(0, 20) || '(no body)'}`);
+              });
+              
+              // Count unread messages (where current user is recipient and is_read=false)
+              const unreadCount = messages.filter(msg => 
+                msg.sender_id !== auth.user?.user_id && // Messages FROM others TO me
+                msg.is_read === false // That are unread
+              ).length;
+              
+              console.log(`[RightSidebar] Found ${unreadCount} unread messages from ${connection.profile?.display_name}`);
+              
+              if (unreadCount > 0) {
+                setDirectMessageCheck(prev => ({
+                  ...prev,
+                  [connection.user_id]: unreadCount
+                }));
+              }
+            } else {
+              console.error(`[RightSidebar] Messages response is not an array:`, messages);
+            }
+          } catch (error) {
+            console.error(`[RightSidebar] Error checking messages for ${connection.profile?.display_name}:`, error);
+          }
+        }
+      } catch (error) {
+        console.error('[RightSidebar] Error in direct message check:', error);
+      }
+    };
+    
+    checkDirectMessages();
+  }, [auth.user, onlineConnections]); // Run when auth.user or onlineConnections changes
+
+  useEffect(() => {
+    console.log('[RightSidebar DEBUG] unreadSendersMap updated:', unreadSendersMap);
+    if(isLoadingUnreadMap) console.log('[RightSidebar DEBUG] isLoadingUnreadMap is true');
+    if(unreadMapError) console.error('[RightSidebar DEBUG] unreadMapError:', unreadMapError);
+    
+    // Initialize localUnreadCounts from API data whenever unreadSendersMap changes
+    if (!isLoadingUnreadMap && Object.keys(unreadSendersMap).length > 0) {
+      console.log('[RightSidebar] Syncing localUnreadCounts with API data:', unreadSendersMap);
+      setLocalUnreadCounts(prevCounts => {
+        // Merge api data with any local counts, taking the higher value
+        const mergedCounts = { ...prevCounts };
+        
+        Object.entries(unreadSendersMap).forEach(([userId, count]) => {
+          mergedCounts[userId] = Math.max(count, mergedCounts[userId] || 0);
+        });
+        
+        console.log('[RightSidebar] After merging, localUnreadCounts:', mergedCounts);
+        return mergedCounts;
+      });
+    }
+  }, [unreadSendersMap, isLoadingUnreadMap, unreadMapError]);
 
   // Refetch unread senders when online connections change (as a proxy for new activity)
   // or when the chat popup is closed (in case messages were read)
@@ -101,6 +242,46 @@ export const RightSidebar: FC = () => {
 
     newSocket.on('newNotification', (data) => {
       console.log('RightSidebar received newNotification event:', data);
+      
+      // If this is a message notification and we have sender information, update our local count
+      if (data.message && data.senderId) {
+        setLocalUnreadCounts(prev => {
+          const senderId = data.senderId;
+          // Increment the count by 1 per new message
+          const newCount = (prev[senderId] || 0) + 1;
+          console.log(`[RightSidebar] Updating local unread count for sender ${senderId} to ${newCount}`);
+          return {
+            ...prev,
+            [senderId]: newCount
+          };
+        });
+        
+        // If the incoming message is for a room we're already tracking
+        if (isChatOpen && selectedRecipient && data.senderId === selectedRecipient.user_id) {
+          // If the chat with this person is open, mark as read immediately
+          console.log(`[RightSidebar] Chat with ${selectedRecipient.profile?.display_name} is open, keeping unread count at 0`);
+          setLocalUnreadCounts(prev => ({
+            ...prev,
+            [selectedRecipient.user_id]: 0
+          }));
+          
+          setDirectMessageCheck(prev => ({
+            ...prev,
+            [selectedRecipient.user_id]: 0
+          }));
+          
+          // Also update localStorage for this user
+          try {
+            const saved = localStorage.getItem('unreadMessageCounts');
+            const counts = saved ? JSON.parse(saved) : {};
+            counts[selectedRecipient.user_id] = 0;
+            localStorage.setItem('unreadMessageCounts', JSON.stringify(counts));
+          } catch (e) {
+            console.error('[RightSidebar] Error updating localStorage:', e);
+          }
+        }
+      }
+      
       queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread-message-senders'] });
     });
 
@@ -126,6 +307,28 @@ export const RightSidebar: FC = () => {
     }
   });
 
+  console.log('[RightSidebar RENDER] Evaluating component. onlineConnections:', onlineConnections, 'unreadSendersMap:', unreadSendersMap);
+
+  // Save unread counts to localStorage whenever they change
+  useEffect(() => {
+    try {
+      // Combine both count sources to ensure we save everything
+      const combinedCounts: Record<string, number> = { ...directMessageCheck };
+      
+      // Add any counts from localUnreadCounts that aren't in directMessageCheck
+      Object.entries(localUnreadCounts).forEach(([userId, count]) => {
+        if (!combinedCounts[userId] || combinedCounts[userId] < count) {
+          combinedCounts[userId] = count;
+        }
+      });
+      
+      localStorage.setItem('unreadMessageCounts', JSON.stringify(combinedCounts));
+      console.log('[RightSidebar] Saved unread counts to localStorage:', combinedCounts);
+    } catch (e) {
+      console.error('[RightSidebar] Error saving unread counts to localStorage:', e);
+    }
+  }, [localUnreadCounts, directMessageCheck]);
+
   return (
     <div className="sticky top-20">
       {/* Google Text Ads */}
@@ -140,7 +343,22 @@ export const RightSidebar: FC = () => {
         </div>
         <div className="space-y-3 max-h-48 overflow-y-auto scrollbar-hide">
           {onlineConnections.slice(0, 3).map(connection => {
-            const hasUnread = unreadMessageSenderIds.includes(connection.user_id);
+            // Use local unread count if available, otherwise fall back to the API count
+            const apiUnreadCount = unreadSendersMap[connection.user_id] || 0;
+            const localUnreadCount = localUnreadCounts[connection.user_id] || 0;
+            const directCheckCount = directMessageCheck[connection.user_id] || 0;
+            
+            // Prefer local count but fall back to API count if it's higher
+            const unreadCount = Math.max(apiUnreadCount, localUnreadCount, directCheckCount);
+            
+            // Remove forced test value
+            const finalUnreadCount = unreadCount;
+            
+            console.log(`[RightSidebar] User ${connection.profile?.display_name} (${connection.user_id}): apiCount=${apiUnreadCount}, localCount=${localUnreadCount}, directCheck=${directCheckCount}, finalCount=${finalUnreadCount}`);
+            
+            if (finalUnreadCount === 0) {
+              console.log(`[RightSidebar] Not rendering badge for ${connection.profile?.display_name} because finalUnreadCount is 0.`);
+            }
             return (
               <div key={connection.user_id} className="flex items-center space-x-3">
                 <AvatarWithEmotion 
@@ -180,8 +398,10 @@ export const RightSidebar: FC = () => {
                   title={`Chat with ${connection.profile?.display_name || 'user'}`}
                 >
                   <MessageCircle className="h-4 w-4" />
-                  {hasUnread && (
-                    <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-gray-800" />
+                  {finalUnreadCount > 0 && (
+                    <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-medium text-white">
+                      {finalUnreadCount > 9 ? '9+' : finalUnreadCount}
+                    </span>
                   )}
                 </Button>
               </div>
@@ -270,7 +490,25 @@ export const RightSidebar: FC = () => {
             setIsChatOpen(false);
             setSelectedRecipient(null);
             setCurrentRoomId(null);
-            queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread-message-senders'] });
+            
+            // Reset unread counts for this user
+            if (selectedRecipient) {
+              console.log(`[RightSidebar] Resetting unread counts for ${selectedRecipient.profile?.display_name} after closing chat`);
+              
+              // Clear counts in all tracking mechanisms
+              setLocalUnreadCounts(prev => ({
+                ...prev,
+                [selectedRecipient.user_id]: 0
+              }));
+              
+              setDirectMessageCheck(prev => ({
+                ...prev,
+                [selectedRecipient.user_id]: 0
+              }));
+              
+              // Also force a refetch of API data
+              queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread-message-senders'] });
+            }
           }}
           currentUserId={auth.user.user_id}
           roomId={currentRoomId}
