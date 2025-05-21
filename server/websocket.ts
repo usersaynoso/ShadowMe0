@@ -10,11 +10,10 @@ interface ServerToClientEvents {
   newNotification: (data: { senderId: string, roomId?: string, message?: any }) => void;
   newMessage: (message: any) => void;
   messagesRead: (data: { readByUserId: string, roomId: string, messages: any[] }) => void;
-  chatError: (data: { message: string, roomId?: string, tempMessageId?: string }) => void;
 }
 
 interface ClientToServerEvents {
-  sendMessage: (data: { roomId: string; content: string; tempMessageId?: string; /* remove recipientId, media, messageId as they are not in the new spec */ }) => void;
+  sendMessage: (data: { roomId: string; content: string; /* remove recipientId, media, messageId as they are not in the new spec */ }) => void;
   joinRoom: (roomId: string) => void;
   leaveRoom: (roomId: string) => void;
   markMessagesAsRead: (data: { roomId: string }) => void;
@@ -97,21 +96,22 @@ export const initWebSocketServer = (httpServer: HttpServer) => {
 
       socket.on('sendMessage', async (data) => {
         const { roomId, content } = data;
-        const tempMessageId = (data as any).tempMessageId; // tempMessageId from client
         const userId = socket.data.userId;
         const displayName = socket.data.displayName;
 
-        console.log(`'sendMessage' event received from user: ${displayName} (ID: ${userId}) for room: ${roomId} with content: "${content.substring(0,50)}..." (tempId: ${tempMessageId})`);
+        console.log(`'sendMessage' event received from user: ${displayName} (ID: ${userId}) for room: ${roomId} with content: "${content.substring(0,50)}..."`);
 
         if (!userId || userId.startsWith('guest-')) {
           console.error('Cannot process sendMessage: User not authenticated.');
-          socket.emit('chatError', { message: "Authentication required to send messages.", roomId, tempMessageId });
+          // Optionally, emit an error back to the sender
+          // socket.emit('error', { message: "Authentication required to send messages." });
           return;
         }
 
         if (!roomId || !content) {
           console.error('Cannot process sendMessage: Missing roomId or content.');
-          socket.emit('chatError', { message: "Room ID and message content are required.", roomId, tempMessageId });
+          // Optionally, emit an error back to the sender
+          // socket.emit('error', { message: "Room ID and message content are required." });
           return;
         }
 
@@ -211,7 +211,8 @@ export const initWebSocketServer = (httpServer: HttpServer) => {
 
         } catch (error) {
           console.error('Error processing sendMessage:', error);
-          socket.emit('chatError', { message: "Failed to send message. Please try again.", roomId, tempMessageId });
+          // Optionally, emit an error back to the sender
+          // socket.emit('error', { message: "Failed to send message. Please try again." });
         }
       });
 

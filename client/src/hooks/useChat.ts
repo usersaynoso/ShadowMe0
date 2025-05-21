@@ -18,8 +18,6 @@ export interface ChatMessage {
   isSender: boolean; // Determined on client-side
   timestamp: Date; // Could be redundant if created_at is a Date, or used for client-side sorting
   isRead?: boolean; // Added to track read status
-  status: string; // Added for optimistic updates
-  error?: string; // Added for error handling
 }
 
 // Define a type for the raw message from API/Socket, before client-side processing
@@ -43,11 +41,12 @@ interface ServerToClientEvents {
   newMessage: (message: RawChatMessage) => void; // Server sends raw message
   newNotification: (data: { senderId: string, roomId?: string, message?: any }) => void; // Keep for other notifications
   messagesRead: (data: { readByUserId: string, roomId: string, messages: any[] }) => void; // Add messagesRead event
-  chatError: (data: { message: string, roomId?: string, tempMessageId?: string }) => void; // Added for sendMessage errors
+  // We might need an error event from server if sendMessage fails for some reason
+  // chatError: (data: { message: string }) => void;
 }
 
 interface ClientToServerEvents {
-  sendMessage: (data: { roomId: string; content: string; tempMessageId?: string; }) => void;
+  sendMessage: (data: { roomId: string; content: string; }) => void;
   joinRoom: (roomId: string) => void;
   leaveRoom: (roomId: string) => void;
   markMessagesAsRead: (data: { roomId: string }) => void; // Add markMessagesAsRead event
@@ -55,15 +54,7 @@ interface ClientToServerEvents {
 
 const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'http://localhost:3000';
 
-export interface UseChatOptions {
-  currentUserId: string | null;
-  roomId: string | null;
-  currentUserDisplayName?: string | null;
-  currentUserAvatarUrl?: string | null;
-}
-
-export const useChat = (options: UseChatOptions) => {
-  const { currentUserId, roomId, currentUserDisplayName, currentUserAvatarUrl } = options;
+export const useChat = (currentUserId: string | null, roomId: string | null) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState<boolean>(false);
@@ -103,7 +94,6 @@ export const useChat = (options: UseChatOptions) => {
             timestamp: new Date(msg.created_at),
             isSender: msg.sender_id === currentUserId,
             isRead: msg.is_read, // Assign isRead status
-            status: 'delivered', // Add default status for fetched messages
           };
         });
         
@@ -168,7 +158,6 @@ export const useChat = (options: UseChatOptions) => {
           timestamp: new Date(message.created_at),
           isSender: message.sender_id === currentUserId,
           isRead: message.is_read, // Assign isRead status for new messages
-          status: 'delivered', 
         };
         console.log("[WebSocket] Processed receivedMessage object with isRead:", receivedMessage.isRead);
 
@@ -246,27 +235,8 @@ export const useChat = (options: UseChatOptions) => {
       }
     });
 
-    // Listen for chatError event
-    socket.on('chatError', (errorData) => {
-      if (errorData.roomId === roomId && errorData.tempMessageId) {
-        console.error(`[WebSocket] Chat Error for tempId ${errorData.tempMessageId}: ${errorData.message}`);
-        setMessages((prevMessages) =>
-          prevMessages.map((msg) =>
-            msg.message_id === errorData.tempMessageId
-              ? { ...msg, status: 'failed', error: errorData.message } // Mark as failed and add error message
-              : msg
-          )
-        );
-      } else if (errorData.roomId === roomId) {
-        // Generic error for the room not tied to a specific message
-        console.error(`[WebSocket] Chat Error for room ${roomId}: ${errorData.message}`);
-        // Optionally, set a general room error state here
-      }
-    });
-
-    // newNotification events are expected to be handled by a global notification system
-    // to update UI elements like badges or unread counts for other chat rooms.
-    // The newMessage event handles messages for the current, active room.
+    // TODO: Handle 'newNotification' if it's relevant for in-app chat behavior beyond global notifications
+    // e.g., if a new message in *another* room should trigger something in the current chat context (unlikely for this hook)
 
     return () => {
       if (socketRef.current) {
@@ -300,13 +270,12 @@ export const useChat = (options: UseChatOptions) => {
       created_at: new Date().toISOString(), // Current time
       sender: { // Basic sender info for optimistic display
         user_id: currentUserId,
-        display_name: currentUserDisplayName || undefined, // Use passed display name
-        avatar_url: currentUserAvatarUrl || undefined,   // Use passed avatar URL
+        // display_name: user?.profile?.display_name || "You", // Requires access to full user object
+        // avatar_url: user?.profile?.avatar_url,
       },
       isSender: true,
       timestamp: new Date(),
       isRead: false, // Optimistically set to false for new messages
-      status: 'pending', // Initial status for optimistic message
     };
 
     setMessages((prevMessages) => 
@@ -314,9 +283,9 @@ export const useChat = (options: UseChatOptions) => {
     );
 
     // Emit to server
-    socketRef.current.emit('sendMessage', { roomId, content: content.trim(), tempMessageId: tempId });
+    socketRef.current.emit('sendMessage', { roomId, content: content.trim() });
     
-  }, [roomId, currentUserId, currentUserDisplayName, currentUserAvatarUrl]); // Add currentUserId to dependencies if used for sender details
+  }, [roomId, currentUserId]); // Add currentUserId to dependencies if used for sender details
 
   // Add function to mark messages as read
   const markMessagesAsRead = useCallback(() => {
