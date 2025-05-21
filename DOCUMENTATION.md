@@ -12,6 +12,33 @@ The application is built using a modern full-stack JavaScript architecture:
 - **Authentication**: Passport.js with local strategy and session-based authentication
 - **Real-time Communication**: WebSockets for real-time features
 
+### Environment Configuration and Ports
+
+Understanding the port configuration and key environment variables is crucial for running and developing Shadow Me:
+
+- **Backend Server (Express.js & Socket.IO):**
+  - Runs on the port specified by the `PORT` environment variable in your `.env` file.
+  - If `PORT` is not set, it defaults to `3001` (as per `server/index.ts`), though current project logs indicate it often runs on `3000` if `PORT=3000` is set in `.env`.
+  - The Socket.IO server is attached to this same HTTP server and port.
+
+- **Frontend Development Server (Vite):**
+  - Typically runs on port `5173` by default.
+  - Can be configured to run on other ports (e.g., if `vite.config.ts` is modified or a different port is specified when running the dev server).
+
+- **WebSocket Client Connection (`client/src/hooks/useChat.ts`):**
+  - Attempts to connect to the URL specified in the `VITE_SOCKET_SERVER_URL` environment variable (set in `client/.env`).
+  - If `VITE_SOCKET_SERVER_URL` is not set, it defaults to `http://localhost:3000` to match the typical backend server port.
+
+- **Server-Side CORS for WebSockets (`server/websocket.ts`):**
+  - The Socket.IO server allows connections from origins defined in `process.env.CLIENT_URL`.
+  - `process.env.CLIENT_URL` should be the URL of your running client application (e.g., `http://localhost:5173`). If not set, it defaults to `http://localhost:5173`.
+  - It has also been configured to explicitly allow `http://localhost:3000` to cover common development setups.
+
+- **Database Connection:**
+  - Both the backend server and Drizzle Kit (for migrations) use the `DATABASE_URL` environment variable (set in `.env`) to connect to your PostgreSQL database.
+
+Ensure your `.env` file (at the project root) is correctly configured with these variables, especially `PORT`, `DATABASE_URL`, and potentially `CLIENT_URL` for the server, and `VITE_SOCKET_SERVER_URL` for the client if you deviate from defaults.
+
 ## Implemented Features
 
 ### 1. Database Schema

@@ -122,16 +122,12 @@ export const AvatarRing: FC<AvatarRingProps> = ({
   // If we have an href, render a Link
   if (href) {
     return (
-      <Link href={href}>
-        <a 
-          className={cn(
-            "avatar-ring",
-            "inline-block relative cursor-pointer",
-            className
-          )}
-        >
-          {RingContent}
-        </a>
+      <Link href={href} className={cn(
+        "avatar-ring",
+        "inline-block relative cursor-pointer",
+        className
+      )}>
+        {RingContent}
       </Link>
     );
   }

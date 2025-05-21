@@ -22,7 +22,8 @@ import {
   LogOut, 
   Sun, 
   Moon, 
-  UserCircle 
+  UserCircle,
+  MessageCircle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NotificationBell } from '@/components/ui/notification-bell';
@@ -36,6 +37,7 @@ export const Header: FC = () => {
 
   const navItems = [
     { href: "/", icon: Home, label: "Home" },
+    { href: "/messages", icon: MessageCircle, label: "Messages" },
     { href: "/connections", icon: Users, label: "Connections" },
     { href: "/circles", icon: UserCircle, label: "Circles" },
     { href: "/spaces", icon: Sparkles, label: "Spaces" },
@@ -51,27 +53,25 @@ export const Header: FC = () => {
       <div className="container mx-auto px-4 flex items-center justify-between h-16">
         {/* Logo */}
         <Link href="/">
-          <a className="flex items-center space-x-2">
+          <span className="flex items-center space-x-2 cursor-pointer">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-accent-500 flex items-center justify-center">
               <span className="text-white font-bold text-sm">S</span>
             </div>
             <h1 className="text-xl font-semibold text-primary-600 dark:text-primary-400">Shadow Me</h1>
-          </a>
+          </span>
         </Link>
         
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-6">
           {navItems.map(item => (
-            <Link key={item.href} href={item.href}>
-              <a className={cn(
-                "flex items-center font-medium",
-                location === item.href 
-                  ? "text-primary-600 dark:text-primary-400" 
-                  : "text-gray-500 hover:text-primary-600 dark:hover:text-primary-400"
-              )}>
-                <item.icon className="mr-1 h-4 w-4" />
-                <span>{item.label}</span>
-              </a>
+            <Link key={item.href} href={item.href} className={cn(
+              "flex items-center font-medium cursor-pointer",
+              location === item.href 
+                ? "text-primary-600 dark:text-primary-400" 
+                : "text-gray-500 hover:text-primary-600 dark:hover:text-primary-400"
+            )}>
+              <item.icon className="mr-1 h-4 w-4" />
+              <span>{item.label}</span>
             </Link>
           ))}
         </nav>
@@ -104,22 +104,18 @@ export const Header: FC = () => {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem className="cursor-pointer" asChild>
-                <Link href="/profile">
-                  <a className="flex items-center w-full">
-                    <UserCircle className="mr-2 h-4 w-4" />
-                    <span>Profile</span>
-                  </a>
+                <Link href="/profile" className="flex items-center w-full">
+                  <UserCircle className="mr-2 h-4 w-4" />
+                  <span>Profile</span>
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="cursor-pointer"
                 asChild
               >
-                <Link href="/settings">
-                  <a className="flex items-center w-full">
-                    <Settings className="mr-2 h-4 w-4" />
-                    <span>Settings</span>
-                  </a>
+                <Link href="/settings" className="flex items-center w-full">
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>Settings</span>
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem 

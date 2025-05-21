@@ -66,7 +66,8 @@ export const ConnectionRequestButton: FC<ConnectionRequestButtonProps> = ({
   // Send friend request mutation
   const sendRequestMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", "/api/friends/request", { friend_id: targetUser.user_id });
+      if (!targetUser) return;
+      return apiRequest("POST", `/api/friends/request/${targetUser.user_id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/user/connection-suggestions"] });
@@ -89,7 +90,8 @@ export const ConnectionRequestButton: FC<ConnectionRequestButtonProps> = ({
   // Accept friend request mutation
   const acceptRequestMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("POST", "/api/friends/accept", { friend_id: targetUser.user_id });
+      if (!targetUser) return;
+      return apiRequest("POST", `/api/friends/accept/${targetUser.user_id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/user/connections"] });
@@ -113,7 +115,8 @@ export const ConnectionRequestButton: FC<ConnectionRequestButtonProps> = ({
   // Reject friend request mutation
   const rejectRequestMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("DELETE", "/api/friends/request", { friend_id: targetUser.user_id });
+      if (!targetUser) return;
+      return apiRequest("DELETE", `/api/friends/request/${targetUser.user_id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/user/connections/pending"] });

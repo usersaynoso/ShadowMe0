@@ -242,7 +242,11 @@ CREATE TYPE public.event_type_enum AS ENUM (
     'shadow_session_created',
     'post_created',
     'post_liked',
-    'post_commented'
+    'post_commented',
+    'friendship_request',
+    'shadow_session_reminder',
+    'group_invite',
+    'friend_group_invite'
 );
 
 
@@ -302,7 +306,12 @@ CREATE TYPE public.reaction_type_enum AS ENUM (
     'wow',
     'sad',
     'angry',
-    'emoji'
+    'emoji',
+    'sending_love',
+    'thank_you',
+    'take_care',
+    'here_for_you',
+    'made_my_day'
 );
 
 
@@ -315,6 +324,17 @@ CREATE TYPE public.session_privacy_enum AS ENUM (
     'friend_group',
     'group',
     'public'
+);
+
+
+--
+-- Name: smtp_encryption_enum; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.smtp_encryption_enum AS ENUM (
+    'none',
+    'ssl',
+    'tls'
 );
 
 
@@ -2517,6 +2537,39 @@ CREATE TABLE public.session (
 
 
 --
+-- Name: session_messages; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.session_messages (
+    id bigint NOT NULL,
+    session_id uuid,
+    user_id uuid,
+    message_type character varying(20) DEFAULT 'text'::character varying NOT NULL,
+    content text NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+
+--
+-- Name: session_messages_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.session_messages_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: session_messages_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.session_messages_id_seq OWNED BY public.session_messages.id;
+
+
+--
 -- Name: shadow_session_participants; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2539,6 +2592,19 @@ CREATE TABLE public.shadow_sessions (
     title character varying(100),
     is_live boolean DEFAULT false,
     status character varying(20) DEFAULT 'scheduled'::character varying
+);
+
+
+--
+-- Name: system_settings; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.system_settings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    key character varying(50) NOT NULL,
+    settings_blob jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now()
 );
 
 
@@ -2759,6 +2825,13 @@ ALTER TABLE ONLY public.messages ALTER COLUMN message_id SET DEFAULT nextval('pu
 --
 
 ALTER TABLE ONLY public.post_reactions ALTER COLUMN reaction_id SET DEFAULT nextval('public.post_reactions_reaction_id_seq'::regclass);
+
+
+--
+-- Name: session_messages id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.session_messages ALTER COLUMN id SET DEFAULT nextval('public.session_messages_id_seq'::regclass);
 
 
 --
@@ -3087,6 +3160,9 @@ e7184c53-d8da-4b35-9e86-7f3c9af778bc	3544a971-8346-4421-83c7-295d03a88b6a	c182f3
 0f9bb86f-7576-4e31-a2ee-bdd9ac2bf310	2e44be8d-bc3c-42e3-9e41-655e5119db1b	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	Go friends!	2025-05-17 17:24:21.733443+00	\N
 ca39714c-407c-48f0-8e02-0b1e770d7409	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	Yes you're not wrong	2025-05-19 17:11:57.665429+00	\N
 39dfe83a-b702-42e1-8b75-5c850105cdfa	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	\N	okok	2025-05-19 17:12:33.949961+00	\N
+59480d13-61ef-4717-bf7a-3f7331db7030	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	39dfe83a-b702-42e1-8b75-5c850105cdfa	kk	2025-05-19 18:33:30.885884+00	\N
+a2e08e6d-864f-4512-801f-ca44a803bf7b	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	59480d13-61ef-4717-bf7a-3f7331db7030	hey	2025-05-19 18:33:39.740994+00	\N
+dbc35a3d-25b3-4e8a-8edd-681a0ef444e4	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	59480d13-61ef-4717-bf7a-3f7331db7030	okok	2025-05-19 18:33:53.322822+00	\N
 \.
 
 
@@ -3104,7 +3180,8 @@ c9de0185-d8bc-41b9-afa1-f45b613a809c	2aa5a155-b3b4-443a-91b7-823415b99c44	https:
 --
 
 COPY public.post_reactions (reaction_id, post_id, user_id, reaction_type, created_at) FROM stdin;
-13	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	like	2025-05-19 17:11:47.251397+00
+13	ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	here_for_you	2025-05-19 17:11:47.251397+00
+14	2aa5a155-b3b4-443a-91b7-823415b99c44	c182f303-f6f2-41bd-9d0a-78097d627c5e	made_my_day	2025-05-20 14:17:49.987598+00
 \.
 
 
@@ -3114,7 +3191,8 @@ COPY public.post_reactions (reaction_id, post_id, user_id, reaction_type, create
 
 COPY public.posts (post_id, author_user_id, parent_type, parent_id, audience, content, emotion_ids, created_at, updated_at) FROM stdin;
 2aa5a155-b3b4-443a-91b7-823415b99c44	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	\N	{8,2,1}	2025-05-17 17:52:02.588699+00	\N
-ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	Hello my post is here right. 	{1,8}	2025-05-19 17:07:38.174745+00	\N
+ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	Hello my post is here right. 	{1,8,10}	2025-05-19 17:07:38.174745+00	2025-05-20 13:31:24.913+00
+cd02c0ef-0913-4ef4-803e-d5951a25ba6e	c182f303-f6f2-41bd-9d0a-78097d627c5e	profile	c182f303-f6f2-41bd-9d0a-78097d627c5e	everyone	This is a post	{6,9,2}	2025-05-20 13:37:53.330104+00	\N
 4b0efc0a-4bb2-4925-896f-aac1d315b05e	d3f1f209-1a37-49b9-b844-c701691c20dc	profile	d3f1f209-1a37-49b9-b844-c701691c20dc	just_me	Me	{1}	2025-05-08 17:57:31.011435+00	\N
 3544a971-8346-4421-83c7-295d03a88b6a	d3f1f209-1a37-49b9-b844-c701691c20dc	profile	d3f1f209-1a37-49b9-b844-c701691c20dc	just_me	\N	{12,6,3,4,5}	2025-05-08 17:59:40.901729+00	\N
 2e44be8d-bc3c-42e3-9e41-655e5119db1b	d3f1f209-1a37-49b9-b844-c701691c20dc	profile	d3f1f209-1a37-49b9-b844-c701691c20dc	friends	Friends	{4,9}	2025-05-08 18:04:52.043922+00	\N
@@ -3126,7 +3204,7 @@ ae820a73-2bf8-409a-96b2-5e6314f722b5	c182f303-f6f2-41bd-9d0a-78097d627c5e	profil
 --
 
 COPY public.profiles (profile_id, user_id, display_name, bio, avatar_url, timezone, last_seen_at) FROM stdin;
-a1cf89ff-dcb5-444e-aa11-fa4fee737800	c182f303-f6f2-41bd-9d0a-78097d627c5e	Chris	Webmaster?	https://uwghbkjgbtofbugfqymk.supabase.co/storage/v1/object/public/user-avatars/avatar_c182f303-f6f2-41bd-9d0a-78097d627c5e_1746715210595.jpeg	UTC	\N
+a1cf89ff-dcb5-444e-aa11-fa4fee737800	c182f303-f6f2-41bd-9d0a-78097d627c5e	Chris	Webmaster	https://uwghbkjgbtofbugfqymk.supabase.co/storage/v1/object/public/user-avatars/avatar_c182f303-f6f2-41bd-9d0a-78097d627c5e_1746715210595.jpeg	UTC	\N
 61d15869-1342-4dce-8b72-386f05296fe6	d3f1f209-1a37-49b9-b844-c701691c20dc	Test 1	\N	\N	UTC	\N
 \.
 
@@ -3136,8 +3214,15 @@ a1cf89ff-dcb5-444e-aa11-fa4fee737800	c182f303-f6f2-41bd-9d0a-78097d627c5e	Chris	
 --
 
 COPY public.session (sid, sess, expire) FROM stdin;
-eY780NDAu0kF8gpssgTURQB4PHsdJ8P7	{"cookie":{"originalMaxAge":604800000,"expires":"2025-05-24T16:41:32.858Z","secure":false,"httpOnly":true,"path":"/","sameSite":"lax"},"passport":{"user":"c182f303-f6f2-41bd-9d0a-78097d627c5e"}}	2025-05-24 16:41:33
-Ey3O_q9EFlMrXCEEHOYeZnsi3qeA5LzF	{"cookie":{"originalMaxAge":604800000,"expires":"2025-05-24T19:08:15.744Z","secure":false,"httpOnly":true,"path":"/","sameSite":"lax"},"passport":{"user":"c182f303-f6f2-41bd-9d0a-78097d627c5e"}}	2025-05-26 17:21:43
+n1VQRLZDtRyBNypxEonKeG2i1MvGJUcu	{"cookie":{"originalMaxAge":604800000,"expires":"2025-05-27T15:43:04.778Z","secure":false,"httpOnly":true,"path":"/","sameSite":"lax"},"passport":{"user":"c182f303-f6f2-41bd-9d0a-78097d627c5e"}}	2025-05-27 15:43:06
+\.
+
+
+--
+-- Data for Name: session_messages; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.session_messages (id, session_id, user_id, message_type, content, created_at) FROM stdin;
 \.
 
 
@@ -3158,6 +3243,14 @@ COPY public.shadow_sessions (post_id, starts_at, ends_at, timezone, title, is_li
 
 
 --
+-- Data for Name: system_settings; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+COPY public.system_settings (id, key, settings_blob, created_at, updated_at) FROM stdin;
+\.
+
+
+--
 -- Data for Name: users; Type: TABLE DATA; Schema: public; Owner: -
 --
 
@@ -3173,7 +3266,7 @@ d3f1f209-1a37-49b9-b844-c701691c20dc	digital.factoid5b@icloud.com	cc84dc88cfd8a4
 
 COPY public.users_metadata (metadata_id, user_id, last_emotions, created_at, updated_at) FROM stdin;
 16adee25-6e30-4e5e-942e-4e99984bfc30	d3f1f209-1a37-49b9-b844-c701691c20dc	[4, 9]	2025-05-08 18:04:52.304+00	2025-05-08 18:04:52.304+00
-31deb837-ae97-4623-84d7-c544b874af0c	c182f303-f6f2-41bd-9d0a-78097d627c5e	[1, 8]	2025-05-08 17:26:29.371+00	2025-05-19 17:07:38.552+00
+31deb837-ae97-4623-84d7-c544b874af0c	c182f303-f6f2-41bd-9d0a-78097d627c5e	[6, 9, 2]	2025-05-08 17:26:29.371+00	2025-05-20 13:37:53.489+00
 \.
 
 
@@ -3386,7 +3479,14 @@ SELECT pg_catalog.setval('public.messages_message_id_seq', 1, false);
 -- Name: post_reactions_reaction_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.post_reactions_reaction_id_seq', 13, true);
+SELECT pg_catalog.setval('public.post_reactions_reaction_id_seq', 14, true);
+
+
+--
+-- Name: session_messages_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.session_messages_id_seq', 1, false);
 
 
 --
@@ -3741,6 +3841,14 @@ ALTER TABLE ONLY public.profiles
 
 
 --
+-- Name: session_messages session_messages_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.session_messages
+    ADD CONSTRAINT session_messages_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: session session_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3765,6 +3873,22 @@ ALTER TABLE ONLY public.shadow_sessions
 
 
 --
+-- Name: system_settings system_settings_key_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.system_settings
+    ADD CONSTRAINT system_settings_key_unique UNIQUE (key);
+
+
+--
+-- Name: system_settings system_settings_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.system_settings
+    ADD CONSTRAINT system_settings_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: users users_email_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3778,14 +3902,6 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users_metadata
     ADD CONSTRAINT users_metadata_pkey PRIMARY KEY (metadata_id);
-
-
---
--- Name: users_metadata users_metadata_user_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.users_metadata
-    ADD CONSTRAINT users_metadata_user_id_key UNIQUE (user_id);
 
 
 --
@@ -4156,164 +4272,10 @@ CREATE INDEX "IDX_session_expire" ON public.session USING btree (expire);
 
 
 --
--- Name: idx_friend_group_members_friend_group_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_friend_group_members_friend_group_id ON public.friend_group_members USING btree (friend_group_id);
-
-
---
--- Name: idx_friend_group_members_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_friend_group_members_user_id ON public.friend_group_members USING btree (user_id);
-
-
---
--- Name: idx_friends_friend_id_status; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_friends_friend_id_status ON public.friends USING btree (friend_id, status);
-
-
---
--- Name: idx_friends_user_id_status; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_friends_user_id_status ON public.friends USING btree (user_id, status);
-
-
---
--- Name: idx_group_members_group_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_group_members_group_id ON public.group_members USING btree (group_id);
-
-
---
--- Name: idx_group_members_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_group_members_user_id ON public.group_members USING btree (user_id);
-
-
---
--- Name: idx_post_audience_friend_group_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_post_audience_friend_group_id ON public.post_audience USING btree (friend_group_id);
-
-
---
--- Name: idx_post_audience_post_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_post_audience_post_id ON public.post_audience USING btree (post_id);
-
-
---
--- Name: idx_post_comments_author_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_post_comments_author_user_id ON public.post_comments USING btree (author_user_id);
-
-
---
--- Name: idx_post_comments_post_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_post_comments_post_id ON public.post_comments USING btree (post_id);
-
-
---
--- Name: idx_post_reactions_post_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_post_reactions_post_id ON public.post_reactions USING btree (post_id);
-
-
---
--- Name: idx_post_reactions_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_post_reactions_user_id ON public.post_reactions USING btree (user_id);
-
-
---
--- Name: idx_posts_audience; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_posts_audience ON public.posts USING btree (audience);
-
-
---
--- Name: idx_posts_author_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_posts_author_user_id ON public.posts USING btree (author_user_id);
-
-
---
--- Name: idx_posts_created_at; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_posts_created_at ON public.posts USING btree (created_at DESC);
-
-
---
--- Name: idx_posts_emotion_ids; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_posts_emotion_ids ON public.posts USING gin (emotion_ids);
-
-
---
--- Name: idx_posts_parent_type_parent_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_posts_parent_type_parent_id ON public.posts USING btree (parent_type, parent_id);
-
-
---
--- Name: idx_shadow_session_participants_user_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_shadow_session_participants_user_id ON public.shadow_session_participants USING btree (user_id);
-
-
---
--- Name: idx_shadow_sessions_ends_at; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_shadow_sessions_ends_at ON public.shadow_sessions USING btree (ends_at);
-
-
---
--- Name: idx_shadow_sessions_post_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_shadow_sessions_post_id ON public.shadow_sessions USING btree (post_id);
-
-
---
--- Name: idx_shadow_sessions_starts_at; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_shadow_sessions_starts_at ON public.shadow_sessions USING btree (starts_at);
-
-
---
 -- Name: messages_chat_room_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE INDEX messages_chat_room_id_created_at_idx ON public.messages USING btree (chat_room_id, created_at);
-
-
---
--- Name: notifications_user_id_created_at_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX notifications_user_id_created_at_idx ON public.notifications USING btree (user_id, created_at);
 
 
 --
@@ -4499,14 +4461,6 @@ ALTER TABLE ONLY public.feed_events
 
 
 --
--- Name: friend_group_members friend_group_members_friend_group_id_friend_groups_friend_group; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.friend_group_members
-    ADD CONSTRAINT friend_group_members_friend_group_id_friend_groups_friend_group FOREIGN KEY (friend_group_id) REFERENCES public.friend_groups(friend_group_id) ON DELETE CASCADE;
-
-
---
 -- Name: friend_group_members friend_group_members_user_id_users_user_id_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4584,14 +4538,6 @@ ALTER TABLE ONLY public.messages
 
 ALTER TABLE ONLY public.messages
     ADD CONSTRAINT messages_sender_id_users_user_id_fk FOREIGN KEY (sender_id) REFERENCES public.users(user_id);
-
-
---
--- Name: notifications notifications_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.notifications
-    ADD CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id);
 
 
 --
@@ -4696,14 +4642,6 @@ ALTER TABLE ONLY public.shadow_session_participants
 
 ALTER TABLE ONLY public.shadow_sessions
     ADD CONSTRAINT shadow_sessions_post_id_posts_post_id_fk FOREIGN KEY (post_id) REFERENCES public.posts(post_id) ON DELETE CASCADE;
-
-
---
--- Name: users_metadata users_metadata_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.users_metadata
-    ADD CONSTRAINT users_metadata_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(user_id) ON DELETE CASCADE;
 
 
 --

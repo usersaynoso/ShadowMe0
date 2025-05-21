@@ -15,18 +15,24 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { User, Post, Emotion } from "@/types";
 import { Loader2, Settings, Calendar, Edit3, MessageCircle, Camera, PenSquare } from "lucide-react";
+import { ChatPopup } from "@/components/ChatPopup";
 
 const ProfilePage: FC = () => {
-  const { user } = useAuth();
+  const { user: currentUser } = useAuth();
   const [_, params] = useRoute("/profile/:userId");
-  const userId = params?.userId || user?.user_id;
-  const isOwnProfile = userId === user?.user_id;
+  const profilePageUserId = params?.userId || currentUser?.user_id;
+  const isOwnProfile = profilePageUserId === currentUser?.user_id;
   const [, setLocation] = useLocation();
+
+  // State for ChatPopup
+  const [isChatPopupOpen, setIsChatPopupOpen] = useState(false);
+  const [chatRoomId, setChatRoomId] = useState<string | null>(null);
+  const [chatParticipant, setChatParticipant] = useState<any | null>(null);
 
   // Get profile data
   const { data: profileUser, isLoading: profileLoading } = useQuery<User>({
-    queryKey: [`/api/users/${userId}`],
-    enabled: !!userId,
+    queryKey: [`/api/users/${profilePageUserId}`],
+    enabled: !!profilePageUserId,
   });
 
   // Get emotions
@@ -36,8 +42,8 @@ const ProfilePage: FC = () => {
 
   // Get user posts
   const { data: userPosts = [], isLoading: postsLoading, refetch: refetchUserPosts, isFetching: postsFetching } = useQuery<Post[]>({
-    queryKey: [`/api/users/${userId}/posts`],
-    enabled: !!userId,
+    queryKey: [`/api/users/${profilePageUserId}/posts`],
+    enabled: !!profilePageUserId,
     refetchOnMount: true,
     staleTime: 0,
   });
@@ -127,8 +133,36 @@ const ProfilePage: FC = () => {
                   variant="default" 
                   size="sm" 
                   className="rounded-full"
-                  onClick={() => alert("Coming Soon!")}
-                  title="Coming Soon!"
+                  onClick={async () => {
+                    if (!currentUser || !profileUser || isOwnProfile) return;
+                    console.log('[ProfilePage] Clicked message button for user:', profileUser.user_id);
+                    try {
+                      const roomResponse = await apiRequest(
+                        'POST',
+                        `/api/chat/dm/${profileUser.user_id}`
+                      );
+                      const roomData = await roomResponse.json();
+                      console.log('[ProfilePage] Got roomData:', roomData);
+                      if (!roomData || !roomData.chat_room_id) {
+                        console.error("[ProfilePage] Failed to get or create chat room for profile page. roomData:", roomData);
+                        // TODO: Show error toast
+                        return;
+                      }
+                      console.log('[ProfilePage] Setting state: roomId, participant, isChatPopupOpen=true');
+                      setChatRoomId(roomData.chat_room_id);
+                      setChatParticipant({
+                        id: profileUser.user_id,
+                        displayName: profileUser.profile?.display_name || profileUser.email,
+                        avatarUrl: profileUser.profile?.avatar_url,
+                      });
+                      setIsChatPopupOpen(true);
+                    } catch (error) {
+                      console.error("[ProfilePage] Error opening chat from profile:", error);
+                      // TODO: Show error toast
+                    }
+                  }}
+                  title={`Message ${profileUser.profile?.display_name || 'user'}`}
+                  disabled={!currentUser || isOwnProfile}
                 >
                   <MessageCircle className="h-4 w-4 mr-1" />
                   Message
@@ -270,6 +304,20 @@ const ProfilePage: FC = () => {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {currentUser && profileUser && chatRoomId && isChatPopupOpen && (
+        <ChatPopup
+          isOpen={isChatPopupOpen}
+          onClose={() => {
+            setIsChatPopupOpen(false);
+            setChatRoomId(null);
+            setChatParticipant(null);
+          }}
+          currentUserId={currentUser.user_id}
+          roomId={chatRoomId}
+          otherParticipant={chatParticipant}
+        />
+      )}
     </MainLayout>
   );
 };

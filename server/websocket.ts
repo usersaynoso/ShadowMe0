@@ -1,507 +1,238 @@
-import { WebSocketServer, WebSocket } from 'ws';
-import { Server } from 'http';
-import { storage } from './storage';
+import { Server as HttpServer } from 'http';
+import { Server, Socket } from 'socket.io';
+import { storage } from './storage'; // Import storage
+import { InsertNotification, chat_rooms } from '@shared/schema'; // Import InsertNotification type and chat_rooms
+import { eq } from 'drizzle-orm';
+import { db } from './db'; // Import db
 
-interface Client {
-  ws: WebSocket;
+interface ServerToClientEvents {
+  receiveMessage: (message: { user: string; text: string; media?: string[], recipientId?: string, roomId?: string }) => void;
+  newNotification: (data: { senderId: string, roomId?: string, message?: any }) => void;
+  newMessage: (message: any) => void;
+}
+
+interface ClientToServerEvents {
+  sendMessage: (data: { roomId: string; content: string; /* remove recipientId, media, messageId as they are not in the new spec */ }) => void;
+  joinRoom: (roomId: string) => void;
+  leaveRoom: (roomId: string) => void;
+}
+
+interface InterServerEvents {
+  ping: () => void;
+}
+
+interface SocketData {
   userId: string;
-  isAlive: boolean;
-  sessionRooms: Set<string>; // Track which shadow session rooms the client has joined
+  displayName?: string; // Store displayName if available after auth
 }
 
-interface Message {
-  type: string;
-  payload: any;
-}
-
-export function setupWebSockets(httpServer: Server) {
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
-  
-  const clients = new Map<string, Client>();
-  // Map of sessionId -> Set of userIds who are in the session
-  const sessionRooms = new Map<string, Set<string>>();
-  
-  // Set up heartbeat interval to detect stale connections
-  const heartbeatInterval = setInterval(() => {
-    wss.clients.forEach((ws) => {
-      const client = Array.from(clients.values()).find(c => c.ws === ws);
-      
-      if (client && !client.isAlive) {
-        // User is offline now
-        updateUserOnlineStatus(client.userId, false);
-        
-        // Remove user from all session rooms
-        client.sessionRooms.forEach(sessionId => {
-          leaveSessionRoom(client.userId, sessionId);
-        });
-        
-        clients.delete(client.userId);
-        return ws.terminate();
-      }
-      
-      // Mark as inactive for next ping
-      if (client) {
-        client.isAlive = false;
-      }
-      
-      ws.send(JSON.stringify({ type: 'ping' }));
-    });
-  }, 30000);
-  
-  wss.on('close', () => {
-    clearInterval(heartbeatInterval);
+export const initWebSocketServer = (httpServer: HttpServer) => {
+  const io = new Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>(httpServer, {
+    cors: {
+      origin: [process.env.CLIENT_URL || "http://localhost:5173", "http://localhost:3000"],
+      methods: ["GET", "POST"]
+    }
   });
-  
-  wss.on('connection', (ws, req) => {
-    let userId: string | null = null;
-    
-    ws.on('message', async (data) => {
+
+  io.use(async (socket, next) => {
+    // TODO: Proper authentication - this is a placeholder
+    // In a real app, you'd verify a token or session here
+    // For now, we'll simulate fetching user info if a userId query param is passed
+    const tempUserId = socket.handshake.auth.userId; // Prefer auth.userId first
+    if (tempUserId && typeof tempUserId === 'string') {
       try {
-        const message: Message = JSON.parse(data.toString());
-        
-        // Handle different message types
-        switch (message.type) {
-          case 'auth':
-            // Authenticate the user
-            userId = message.payload.userId;
-            if (!userId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Authentication required' } 
-              }));
-              return;
-            }
-            
-            // Store client connection with empty session rooms set
-            clients.set(userId, { 
-              ws, 
-              userId, 
-              isAlive: true,
-              sessionRooms: new Set()
-            });
-            
-            // Update user's online status
-            updateUserOnlineStatus(userId, true);
-            
-            // Send successful auth response
-            ws.send(JSON.stringify({ 
-              type: 'auth_success', 
-              payload: { userId } 
-            }));
-            break;
-            
-          case 'pong':
-            // Update the client's alive status
-            if (userId && clients.has(userId)) {
-              const client = clients.get(userId)!;
-              client.isAlive = true;
-            }
-            break;
-            
-          case 'join_shadow_session':
-            // Handle joining a shadow session
-            if (!userId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Authentication required' } 
-              }));
-              return;
-            }
-            
-            const { sessionId } = message.payload;
-            
-            if (!sessionId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Session ID is required' } 
-              }));
-              return;
-            }
-            
-            // Add user to session room
-            joinSessionRoom(userId, sessionId);
-            
-            // Get current session info
-            const sessionData = await storage.getShadowSession(sessionId);
-            if (!sessionData) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Shadow session not found' } 
-              }));
-              return;
-            }
-            
-            // Get user info
-            const userData = await storage.getUserById(userId);
-            const displayName = userData?.profile?.display_name || 'Unknown User';
-            
-            // Notify other participants that someone joined
-            broadcastToSessionRoom(sessionId, userId, {
-              type: 'participant_joined',
-              payload: {
-                userId,
-                displayName,
-                timestamp: new Date().toISOString()
-              }
-            });
-            
-            // Send current session state to the joining user
-            if (clients.has(userId)) {
-              const client = clients.get(userId)!;
-              client.ws.send(JSON.stringify({
-                type: 'session_state',
-                payload: {
-                  sessionId,
-                  session: sessionData,
-                  timestamp: new Date().toISOString()
-                }
-              }));
-            }
-            break;
-            
-          case 'leave_shadow_session':
-            // Handle leaving a shadow session
-            if (!userId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Authentication required' } 
-              }));
-              return;
-            }
-            
-            const { sessionId: leaveSessionId } = message.payload;
-            
-            if (!leaveSessionId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Session ID is required' } 
-              }));
-              return;
-            }
-            
-            // Remove user from session room
-            leaveSessionRoom(userId, leaveSessionId);
-            
-            // Get user info
-            const leavingUserData = await storage.getUserById(userId);
-            const leavingDisplayName = leavingUserData?.profile?.display_name || 'Unknown User';
-            
-            // Notify other participants that someone left
-            broadcastToSessionRoom(leaveSessionId, userId, {
-              type: 'participant_left',
-              payload: {
-                userId,
-                displayName: leavingDisplayName,
-                timestamp: new Date().toISOString()
-              }
-            });
-            break;
-            
-          case 'session_message':
-            // Handle messages in shadow sessions
-            if (!userId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Authentication required' } 
-              }));
-              return;
-            }
-            
-            const { sessionId: messageSessionId, content } = message.payload;
-            
-            if (!messageSessionId || !content) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Session ID and message content are required' } 
-              }));
-              return;
-            }
-            
-            // Verify user is in the session
-            const client = clients.get(userId);
-            if (!client || !client.sessionRooms.has(messageSessionId)) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'You must join the session to send messages' } 
-              }));
-              return;
-            }
-            
-            // Get user info for the message
-            const messageUserData = await storage.getUserById(userId);
-            const messageSenderName = messageUserData?.profile?.display_name || 'Unknown User';
-            
-            // Store message in the database if needed
-            // ... (you can add message persistence here)
-            
-            // Broadcast message to all users in the session
-            broadcastToSessionRoom(messageSessionId, userId, {
-              type: 'session_message',
-              payload: {
-                senderId: userId,
-                senderName: messageSenderName,
-                content,
-                timestamp: new Date().toISOString()
-              }
-            });
-            break;
-            
-          case 'media_shared':
-            // Handle media being shared
-            if (!userId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Authentication required' } 
-              }));
-              return;
-            }
-            
-            const { sessionId: mediaSessionId, mediaUrl, mediaType } = message.payload;
-            
-            if (!mediaSessionId || !mediaUrl) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Session ID and media URL are required' } 
-              }));
-              return;
-            }
-            
-            // Verify user is in the session
-            const mediaClient = clients.get(userId);
-            if (!mediaClient || !mediaClient.sessionRooms.has(mediaSessionId)) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'You must join the session to share media' } 
-              }));
-              return;
-            }
-            
-            // Get user info for the media share
-            const mediaUserData = await storage.getUserById(userId);
-            const mediaSenderName = mediaUserData?.profile?.display_name || 'Unknown User';
-            
-            // Broadcast media to all users in the session
-            broadcastToSessionRoom(mediaSessionId, userId, {
-              type: 'session_media',
-              payload: {
-                id: Date.now().toString(), // Simple ID for now
-                userId: userId,
-                senderName: mediaSenderName,
-                mediaUrl,
-                mediaType: mediaType || 'image',
-                timestamp: new Date().toISOString()
-              }
-            });
-            break;
-            
-          case 'typing':
-            // Broadcast typing indicator
-            if (!userId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Authentication required' } 
-              }));
-              return;
-            }
-            
-            const { sessionId: typingSessionId, isTyping } = message.payload;
-            
-            if (!typingSessionId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Session ID is required' } 
-              }));
-              return;
-            }
-            
-            // Verify user is in the session
-            const typingClient = clients.get(userId);
-            if (!typingClient || !typingClient.sessionRooms.has(typingSessionId)) {
-              return;
-            }
-            
-            // Broadcast typing status to all users in the session
-            broadcastToSessionRoom(typingSessionId, userId, {
-              type: 'user_typing',
-              payload: {
-                userId,
-                isTyping
-              }
-            });
-            break;
-            
-          case 'chat_message':
-            // Handle new chat message
-            if (!userId) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Authentication required' } 
-              }));
-              return;
-            }
-            
-            const { roomId, text } = message.payload;
-            
-            if (!roomId || !text) {
-              ws.send(JSON.stringify({ 
-                type: 'error', 
-                payload: { message: 'Room ID and message text are required' } 
-              }));
-              return;
-            }
-            
-            // Save message to database
-            const newMessage = await storage.createChatMessage({
-              chat_room_id: roomId,
-              sender_id: userId,
-              body: text,
-              message_type: 'text'
-            });
-            
-            // Get room members
-            const roomMembers = await storage.getChatRoomMembers(roomId);
-            
-            // Broadcast message to all connected room members
-            roomMembers.forEach(member => {
-              if (clients.has(member.user_id)) {
-                const client = clients.get(member.user_id)!;
-                client.ws.send(JSON.stringify({
-                  type: 'new_message',
-                  payload: {
-                    message: newMessage
-                  }
-                }));
-              }
-            });
-            break;
-            
-          default:
-            ws.send(JSON.stringify({ 
-              type: 'error', 
-              payload: { message: 'Unknown message type' } 
-            }));
+        const user = await storage.getUser(tempUserId);
+        if (user) {
+          socket.data.userId = user.user_id;
+          socket.data.displayName = user.profile?.display_name || user.email;
+          console.log(`WebSocket User Authenticated: ${socket.data.displayName} (ID: ${socket.data.userId}) connected as socket ${socket.id}`);
+          return next();
+        } else {
+          console.error(`WebSocket auth error: User not found for userId: ${tempUserId}`);
+          return next(new Error('User not found for WebSocket authentication'));
         }
       } catch (error) {
-        console.error('WebSocket message error:', error);
-        ws.send(JSON.stringify({ 
-          type: 'error', 
-          payload: { message: 'Invalid message format' } 
-        }));
+        console.error('WebSocket auth error during user lookup:', error);
+        return next(new Error('Authentication error during user lookup'));
       }
-    });
-    
-    ws.on('close', () => {
-      if (userId && clients.has(userId)) {
-        const client = clients.get(userId)!;
-        
-        // Update user's online status
-        updateUserOnlineStatus(userId, false);
-        
-        // Remove user from all session rooms
-        client.sessionRooms.forEach(sessionId => {
-          leaveSessionRoom(userId!, sessionId);
-        });
-        
-        // Remove client
-        clients.delete(userId);
-      }
-    });
-    
-    ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
-      if (userId && clients.has(userId)) {
-        const client = clients.get(userId)!;
-        
-        // Update user's online status
-        updateUserOnlineStatus(userId, false);
-        
-        // Remove user from all session rooms
-        client.sessionRooms.forEach(sessionId => {
-          leaveSessionRoom(userId!, sessionId);
-        });
-        
-        // Remove client
-        clients.delete(userId);
-      }
-    });
+    } else {
+        // If no userId is provided in auth, treat as an authentication error
+        console.error('WebSocket auth error: No userId provided in handshake auth.');
+        return next(new Error('Authentication error: No userId provided.'));
+    }
   });
-  
-  // Helper function to add a user to a session room
-  function joinSessionRoom(userId: string, sessionId: string) {
-    // Add sessionId to user's joined rooms
-    if (clients.has(userId)) {
-      const client = clients.get(userId)!;
-      client.sessionRooms.add(sessionId);
-    }
-    
-    // Add userId to session room
-    if (!sessionRooms.has(sessionId)) {
-      sessionRooms.set(sessionId, new Set<string>());
-    }
-    
-    const room = sessionRooms.get(sessionId)!;
-    room.add(userId);
-  }
-  
-  // Helper function to remove a user from a session room
-  function leaveSessionRoom(userId: string, sessionId: string) {
-    // Remove sessionId from user's joined rooms
-    if (clients.has(userId)) {
-      const client = clients.get(userId)!;
-      client.sessionRooms.delete(sessionId);
-    }
-    
-    // Remove userId from session room
-    if (sessionRooms.has(sessionId)) {
-      const room = sessionRooms.get(sessionId)!;
-      room.delete(userId);
-      
-      // Clean up empty rooms
-      if (room.size === 0) {
-        sessionRooms.delete(sessionId);
-      }
-    }
-  }
-  
-  // Helper function to broadcast a message to all users in a session room
-  function broadcastToSessionRoom(sessionId: string, senderId: string, message: any) {
-    if (!sessionRooms.has(sessionId)) return;
-    
-    const room = sessionRooms.get(sessionId)!;
-    
-    room.forEach(userId => {
-      if (userId !== senderId && clients.has(userId)) {
-        const client = clients.get(userId)!;
-        client.ws.send(JSON.stringify(message));
-      }
-    });
-  }
-  
-  // Helper to update user's online status
-  async function updateUserOnlineStatus(userId: string, isOnline: boolean) {
+
+  io.on('connection', async (socket: Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>) => {
     try {
-      await storage.updateUserOnlineStatus(userId, isOnline);
+      // socket.data.userId and socket.data.displayName are now guaranteed by the strict middleware
+      const userId = socket.data.userId;
+      const displayName = socket.data.displayName;
+
+      console.log(`[WebSocket] User connected: ${displayName} (ID: ${userId}), Socket ID: ${socket.id}`);
       
-      // Get user's friends to notify them about status change
-      const userFriends = await storage.getUserConnections(userId);
-      
-      // Broadcast status change to connected friends
-      userFriends.forEach(friend => {
-        if (clients.has(friend.user_id)) {
-          const client = clients.get(friend.user_id)!;
-          client.ws.send(JSON.stringify({
-            type: 'friend_status_change',
-            payload: {
-              userId,
-              isOnline
+      // Join rooms when requested by client
+      socket.on('joinRoom', (roomId) => {
+        if (!roomId) {
+          console.log(`[WebSocket] Client ${socket.id} (${userId}) attempted to join room with null/empty roomId`);
+          return;
+        }
+        
+        console.log(`[WebSocket] User ${userId} (Socket ${socket.id}) joining room: ${roomId}`);
+        socket.join(roomId);
+      });
+
+      // Leave rooms when requested by client
+      socket.on('leaveRoom', (roomId) => {
+        if (!roomId) {
+          console.log(`[WebSocket] Client ${socket.id} attempted to leave room with null/empty roomId`);
+          return;
+        }
+        
+        console.log(`[WebSocket] User ${userId} (Socket ${socket.id}) leaving room: ${roomId}`);
+        socket.leave(roomId);
+      });
+
+      socket.on('sendMessage', async (data) => {
+        const { roomId, content } = data;
+        const userId = socket.data.userId;
+        const displayName = socket.data.displayName;
+
+        console.log(`'sendMessage' event received from user: ${displayName} (ID: ${userId}) for room: ${roomId} with content: "${content.substring(0,50)}..."`);
+
+        if (!userId || userId.startsWith('guest-')) {
+          console.error('Cannot process sendMessage: User not authenticated.');
+          // Optionally, emit an error back to the sender
+          // socket.emit('error', { message: "Authentication required to send messages." });
+          return;
+        }
+
+        if (!roomId || !content) {
+          console.error('Cannot process sendMessage: Missing roomId or content.');
+          // Optionally, emit an error back to the sender
+          // socket.emit('error', { message: "Room ID and message content are required." });
+          return;
+        }
+
+        try {
+          // First check if this is a direct message and determine recipient
+          let recipientId = null;
+          try {
+            // Get information about the room to check if it's direct (type 'profile')
+            const roomMembers = await storage.getChatRoomMembers(roomId);
+            const roomInfo = await db.select()
+              .from(chat_rooms)
+              .where(eq(chat_rooms.chat_room_id, roomId))
+              .limit(1);
+              
+            if (roomInfo.length > 0 && roomInfo[0].parent_type === 'profile') {
+              // This is a direct message, find the other user to set as recipient
+              const otherMember = roomMembers.find(member => member.user_id !== userId);
+              if (otherMember) {
+                recipientId = otherMember.user_id;
+                console.log(`Direct message detected, setting recipient_id to ${recipientId}`);
+              }
             }
-          }));
+          } catch (err) {
+            console.error('Error determining recipient for message:', err);
+            // Continue without recipient_id if we can't determine it
+          }
+
+          // 1. Save the message to the database
+          const savedMessage = await storage.createChatMessage({
+            chat_room_id: roomId,
+            sender_id: userId,
+            recipient_id: recipientId, // Add recipient_id (will be null for group chats)
+            body: content,
+            message_type: 'text'
+          });
+          console.log('Message saved to DB:', savedMessage);
+
+          // 2. Broadcast the new message to all clients in that specific roomId
+          // The payload should include the full message object with sender details
+          // (sender details might need to be fetched or enriched if not returned by createChatMessage)
+          // For now, assuming savedMessage contains necessary details or we augment it.
+          const richSenderInfo = savedMessage.sender; // Assuming savedMessage.sender exists and is structured
+          
+          const messageForBroadcast = {
+            ...savedMessage, // Spread the original message, which includes its own sender object
+            // Now, selectively build the sender object for broadcast to ensure critical fields and fallbacks
+            sender: {
+              user_id: richSenderInfo?.user_id || userId, // Fallback to userId from socket data if needed
+              display_name: richSenderInfo?.profile?.display_name || richSenderInfo?.email || displayName || "User",
+              avatar_url: richSenderInfo?.profile?.avatar_url, // Include avatar if available
+              // Copy other relevant fields from richSenderInfo or richSenderInfo.profile if necessary
+              // For example: richSenderInfo.user_type, richSenderInfo.user_level etc.
+            }
+          };
+
+          console.log(`Attempting to broadcast 'newMessage' to room: ${roomId}`);
+          const socketsInRoom = await io.in(roomId).fetchSockets();
+          if (socketsInRoom && socketsInRoom.length > 0) {
+              console.log(`[SERVER DEBUG] Sockets in room ${roomId} before emit:`, socketsInRoom.map(s => ({ id: s.id, userId: s.data.userId })));
+          } else {
+              console.log(`[SERVER DEBUG] No sockets found in room ${roomId} for broadcast (checked before emit).`);
+          }
+          io.to(roomId).emit('newMessage', messageForBroadcast);
+          console.log(`'newMessage' event broadcasted to room ${roomId} with message ID ${messageForBroadcast.message_id}`);
+
+          // 3. Handle unread notifications
+          //    Identify recipient(s) in the room. If it's a DM, the recipient is the other user.
+          //    For each recipient who is *not* the sender, emit the 'newNotification' event 
+          //    AND persist a notification in the database.
+
+          const roomMembers = await storage.getChatRoomMembers(roomId); // Assumes this function exists
+          if (roomMembers) {
+            for (const member of roomMembers) {
+              if (member.user_id !== userId) { // Don't notify the sender
+                const recipientSocketId = member.user_id; // Assuming user_id is used for socket room joining
+                
+                // Emit 'newNotification' to the recipient's personal room/socket
+                io.to(recipientSocketId).emit('newNotification', { 
+                  senderId: userId, 
+                  roomId: roomId,
+                  message: messageForBroadcast // Send the full message with the notification
+                });
+                console.log(`'newNotification' event emitted to user ${member.user_id} for room ${roomId}`);
+
+                // Persist notification in the database
+                await storage.createNotification({
+                  recipient_user_id: member.user_id,
+                  actor_user_id: userId,
+                  event_type: 'message_sent',
+                  entity_id: roomId, // Could also be message_id if preferred for direct linking
+                  entity_type: 'chat_message',
+                });
+                console.log(`Notification persisted for user ${member.user_id} from sender ${userId} in room ${roomId}`);
+              }
+            }
+          }
+
+        } catch (error) {
+          console.error('Error processing sendMessage:', error);
+          // Optionally, emit an error back to the sender
+          // socket.emit('error', { message: "Failed to send message. Please try again." });
         }
       });
+
+      socket.on('disconnect', () => {
+        const userId = socket.data.userId; // Should be reliable from middleware
+        const displayName = socket.data.displayName; // Should be reliable
+        console.log(`[WebSocket] User ${displayName} (ID: ${userId}) disconnected from socket ID: ${socket.id}`);
+      });
+
+      // Join a room based on userId to allow direct targeting of sockets
+      // This should use the guaranteed userId from socket.data
+      if (userId && !userId.startsWith('guest-')) { // guest- check might be redundant if guests are rejected by middleware
+        socket.join(userId);
+        console.log(`[WebSocket] User ${displayName} (ID: ${userId}) joined personal room: ${userId}`);
+      }
+
     } catch (error) {
-      console.error('Failed to update user online status:', error);
+      console.error('Error processing WebSocket connection:', error);
+      socket.disconnect();
     }
-  }
+  });
   
-  return wss;
-}
+  console.log('WebSocket server initialized with basic auth and notification creation attempt');
+  return io;
+}; 

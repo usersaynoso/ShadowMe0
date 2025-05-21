@@ -4,17 +4,10 @@
   "entries": [
     {
       "idx": 0,
-      "version": "7",
-      "when": 1747673981155,
-      "tag": "0000_windy_dark_phoenix",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1747675719874,
-      "tag": "0001_breezy_may_parker",
+      "version": "5",
+      "when": 1716228921483,
+      "tag": "0000_initial_schema",
       "breakpoints": true
     }
   ]
-}
+} 

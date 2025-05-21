@@ -13,8 +13,9 @@ import { ShadowSessionViewPage } from "@/pages/shadow-session-view";
 import SpaceViewPage from "@/pages/spaces-[spaceId]";
 import ArkPage from "@/pages/admin/ArkPage";
 import SettingsPage from "@/pages/SettingsPage";
+import MessagesPage from "@/pages/messages";
 import { ProtectedRoute } from "./lib/protected-route";
-import { AuthProvider } from "./hooks/use-auth";
+import { AuthProvider, useAuth } from "./hooks/use-auth";
 
 function Router() {
   return (
@@ -30,6 +31,7 @@ function Router() {
       <ProtectedRoute path="/profile/:userId?" component={() => <ProfilePage />} />
       <ProtectedRoute path="/profile" component={() => <ProfilePage />} />
       <ProtectedRoute path="/settings" component={() => <SettingsPage />} />
+      <ProtectedRoute path="/messages" component={() => <MessagesPage />} />
       <ProtectedRoute 
         path="/ark" 
         component={() => <ArkPage />} 
@@ -40,13 +42,22 @@ function Router() {
   );
 }
 
+// New component to contain the app's content
+function AppContent() {
+  const { user } = useAuth();
+
+  return (
+    <TooltipProvider>
+      <Toaster />
+      <Router />
+    </TooltipProvider>
+  );
+}
+
 function App() {
   return (
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <AppContent />
     </AuthProvider>
   );
 }

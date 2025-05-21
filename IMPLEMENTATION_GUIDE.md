@@ -235,6 +235,65 @@ function CreatePostForm() {
 
 > **Note**: The Shadow Session functionality has been integrated into the `CreatePostDialog` component.
 
+While Shadow Sessions themselves are created via posts, the real-time chat aspect (and any future real-time features) utilizes a WebSocket connection managed by Socket.IO.
+
+### WebSocket Setup for Real-time Chat
+
+- **Client-side (`client/src/hooks/useChat.ts`):**
+  - A custom React hook `useChat(currentUserId)` is used to manage the WebSocket connection, send messages, and receive messages.
+  - It connects to the Socket.IO server using the URL defined by the `VITE_SOCKET_SERVER_URL` environment variable (in `client/.env`). If this variable is not set, it defaults to `http://localhost:3000` (or the port your backend server is running on).
+  - The `ChatPopup.tsx` component utilizes this hook to provide the messaging UI.
+
+- **Server-side (`server/websocket.ts` and `server/index.ts`):**
+  - The Socket.IO server is initialized in `server/websocket.ts` and attached to the main HTTP server in `server/index.ts`.
+  - It listens on the same port as your Express application (defined by the `PORT` environment variable, typically `3000`).
+  - CORS is configured in `server/websocket.ts` to allow connections from client origins (e.g., `http://localhost:5173` or `http://localhost:3000`, or `process.env.CLIENT_URL`).
+
+**Example: Integrating the Chat UI (Conceptual - actual integration is in `RightSidebar.tsx`)**
+
+```tsx
+import React, { useState } from 'react';
+import { ChatPopup } from '@/components/ChatPopup'; // Adjust path as needed
+import { useAuth } from '@/hooks/use-auth';
+
+function MyPageComponent() {
+  const [isChatVisible, setIsChatVisible] = useState(false);
+  const [chatWithUser, setChatWithUser] = useState<string | null>(null);
+  const { user: currentUser } = useAuth();
+
+  const openChatWith = (userId: string) => {
+    setChatWithUser(userId);
+    setIsChatVisible(true);
+  };
+
+  if (!currentUser) return <p>Please log in to chat.</p>;
+
+  return (
+    <div>
+      {/* Button to open chat with a specific user */}
+      <button onClick={() => openChatWith("someRecipientUserId123")}>
+        Chat with User 123
+      </button>
+      
+      {chatWithUser && (
+        <ChatPopup 
+          isOpen={isChatVisible}
+          onClose={() => {
+            setIsChatVisible(false);
+            setChatWithUser(null);
+          }}
+          currentUserId={currentUser.user_id}
+          recipientId={chatWithUser}
+          recipientDisplayName="User 123" // Fetch or pass display name appropriately
+        />
+      )}
+    </div>
+  );
+}
+```
+
+This provides a basic framework. Ensure `currentUserId` and `recipientId` are correctly passed for context-specific chat instances.
+
 ### Creating a Shadow Session
 
 Shadow sessions are created using the `CreatePostDialog` component by setting the `initialIsShadowSession` prop to `true`, or by toggling the "Make this a Shadow Session" switch within the dialog. The dialog handles the necessary fields like title, description, start/end times, and audience.

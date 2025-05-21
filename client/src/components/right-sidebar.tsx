@@ -1,4 +1,4 @@
-import { FC } from "react";
+import { FC, useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { AvatarWithEmotion } from "@/components/ui/avatar-with-emotion";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,16 @@ import { User, Group } from "@/types";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { MessageCircle } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { ChatPopup } from "./ChatPopup";
+import io, { Socket } from 'socket.io-client';
+
+const SOCKET_SERVER_URL = import.meta.env.VITE_SOCKET_SERVER_URL || 'http://localhost:3000';
+
+// Define event interfaces for the sidebar's socket listener
+interface SidebarSocketEvents {
+  newNotification: (data: { senderId: string, roomId?: string }) => void;
+}
 
 // GoogleTextAds component
 const GoogleTextAds: FC = () => (
@@ -41,6 +51,12 @@ const GoogleTextAds: FC = () => (
 );
 
 export const RightSidebar: FC = () => {
+  const auth = useAuth();
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [selectedRecipient, setSelectedRecipient] = useState<User | null>(null);
+  const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
+  const socketRef = useRef<Socket<SidebarSocketEvents, any> | null>(null);
+
   // Get connection suggestions
   const { data: suggestions = [] } = useQuery<User[]>({
     queryKey: ['/api/user/connection-suggestions'],
@@ -52,14 +68,58 @@ export const RightSidebar: FC = () => {
   });
   
   // Get online connections
-  const { data: onlineConnections = [] } = useQuery<User[]>({
+  const { data: onlineConnections = [], isSuccess: onlineConnectionsSuccess } = useQuery<User[]>({
     queryKey: ['/api/user/connections/online'],
   });
+
+  // Get unread message sender IDs
+  const { data: unreadMessageSenderIds = [] } = useQuery<string[]>({
+    queryKey: ['/api/notifications/unread-message-senders'],
+    enabled: !!auth.user, // Only fetch if user is authenticated
+  });
+
+  // Refetch unread senders when online connections change (as a proxy for new activity)
+  // or when the chat popup is closed (in case messages were read)
+  useEffect(() => {
+    if (onlineConnectionsSuccess || !isChatOpen) {
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread-message-senders'] });
+    }
+  }, [onlineConnectionsSuccess, isChatOpen]);
+
+  // Effect for WebSocket connection for new notification events
+  useEffect(() => {
+    if (!auth.user) return;
+
+    const newSocket = io(SOCKET_SERVER_URL, {
+      auth: { userId: auth.user.user_id },
+    });
+    socketRef.current = newSocket;
+
+    newSocket.on('connect', () => {
+      console.log(`RightSidebar connected to WebSocket for notifications (socket ID: ${newSocket.id})`);
+    });
+
+    newSocket.on('newNotification', (data) => {
+      console.log('RightSidebar received newNotification event:', data);
+      queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread-message-senders'] });
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('RightSidebar disconnected from WebSocket for notifications');
+    });
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, [auth.user]);
   
   // Connect mutation
   const connectMutation = useMutation({
     mutationFn: async (userId: string) => {
-      return apiRequest('POST', `/api/friends/request`, { friend_id: userId });
+      return apiRequest('POST', `/api/friends/request/${userId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/user/connection-suggestions'] });
@@ -79,27 +139,54 @@ export const RightSidebar: FC = () => {
           </span>
         </div>
         <div className="space-y-3 max-h-48 overflow-y-auto scrollbar-hide">
-          {onlineConnections.slice(0, 3).map(connection => (
-            <div key={connection.user_id} className="flex items-center space-x-3">
-              <AvatarWithEmotion 
-                user={connection}
-                showOnlineStatus={true}
-              />
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium truncate">{connection.profile?.display_name}</h4>
-                <p className="text-xs text-green-500 truncate">Active now</p>
+          {onlineConnections.slice(0, 3).map(connection => {
+            const hasUnread = unreadMessageSenderIds.includes(connection.user_id);
+            return (
+              <div key={connection.user_id} className="flex items-center space-x-3">
+                <AvatarWithEmotion 
+                  user={connection}
+                  showOnlineStatus={true}
+                />
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-sm font-medium truncate">{connection.profile?.display_name}</h4>
+                  <p className="text-xs text-green-500 truncate">Active now</p>
+                </div>
+                <Button 
+                  variant="ghost"
+                  size="icon"
+                  className="relative text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 p-1"
+                  onClick={async () => {
+                    if (!auth.user) return;
+                    console.log('[RightSidebar] Clicked message icon for connection:', connection.user_id);
+                    try {
+                      const roomResponse = await apiRequest(
+                        'POST',
+                        `/api/chat/dm/${connection.user_id}`
+                      );
+                      const roomData = await roomResponse.json();
+                      console.log('[RightSidebar] Got roomData:', roomData);
+                      if (!roomData || !roomData.chat_room_id) {
+                        console.error("[RightSidebar] Failed to get or create chat room. roomData:", roomData);
+                        return;
+                      }
+                      console.log('[RightSidebar] Setting state: roomId, recipient, isChatOpen=true');
+                      setCurrentRoomId(roomData.chat_room_id);
+                      setSelectedRecipient(connection);
+                      setIsChatOpen(true);
+                    } catch (error) {
+                      console.error("[RightSidebar] Error opening chat:", error);
+                    }
+                  }}
+                  title={`Chat with ${connection.profile?.display_name || 'user'}`}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  {hasUnread && (
+                    <span className="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-gray-800" />
+                  )}
+                </Button>
               </div>
-              <Button 
-                variant="ghost"
-                size="icon"
-                className="text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 p-1"
-                onClick={() => alert("Coming Soon!")}
-                title="Coming Soon!"
-              >
-                <MessageCircle className="h-4 w-4" />
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
       {/* Connection Suggestions */}
@@ -175,6 +262,25 @@ export const RightSidebar: FC = () => {
           ))}
         </div>
       </Card>
+      {/* ChatPopup Integration */}
+      {auth.user && selectedRecipient && currentRoomId && isChatOpen && (
+        <ChatPopup
+          isOpen={isChatOpen}
+          onClose={() => {
+            setIsChatOpen(false);
+            setSelectedRecipient(null);
+            setCurrentRoomId(null);
+            queryClient.invalidateQueries({ queryKey: ['/api/notifications/unread-message-senders'] });
+          }}
+          currentUserId={auth.user.user_id}
+          roomId={currentRoomId}
+          otherParticipant={{
+            id: selectedRecipient.user_id,
+            displayName: selectedRecipient.profile?.display_name || selectedRecipient.email || 'User',
+            avatarUrl: selectedRecipient.profile?.avatar_url,
+          }}
+        />
+      )}
     </div>
   );
 };

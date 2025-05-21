@@ -2,7 +2,6 @@ import express, { type Express, Request, Response, NextFunction } from "express"
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./auth";
-import { setupWebSockets } from "./websocket";
 import { db } from "./db";
 import { eq } from "drizzle-orm";
 import { posts, User, reactionTypeEnum, eventTypeEnum, type InsertNotification } from "../shared/schema";
@@ -70,8 +69,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server
   const httpServer = createServer(app);
   
-  // Set up WebSockets
-  setupWebSockets(httpServer);
+  // Set up WebSockets - This is now done in server/index.ts
+  // setupWebSockets(httpServer);
 
   // Debug middleware to log request details
   app.use((req, res, next) => {
@@ -1206,11 +1205,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Notification routes
   app.get('/api/notifications', isAuthenticated, async (req, res) => {
     try {
-      const user_id = req.user!.user_id;
+      const user_id = req.user?.user_id;
+      if (!user_id) {
+        console.error('[GET /api/notifications] User not authenticated or user ID missing after isAuthenticated guard. Path: ', req.path);
+        return res.status(401).json({ error: 'User not authenticated or user ID missing.' });
+      }
+
       const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
       const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
       
       const notifications = await storage.getUserNotifications(user_id, limit, offset);
+
+      // Ensure notifications is an array before trying to filter it
+      if (!Array.isArray(notifications)) {
+        console.error('[GET /api/notifications] storage.getUserNotifications did not return an array for user_id:', user_id, 'Received:', notifications, 'Path: ', req.path);
+        // It's better to return an empty array or a defined structure if notifications might legitimately be non-existent or null
+        // Forcing a 500 here might be too aggressive if storage.getUserNotifications can return null for valid reasons (e.g. no notifications)
+        // However, if it *should* always be an array, then a 500 for unexpected type is okay.
+        // For now, let's assume it should be an array and error if not for debugging.
+        return res.status(500).json({ error: 'Internal server error: Invalid data from storage while fetching notifications.' });
+      }
       
       const unreadCount = notifications.filter(n => !n.is_read).length;
       
@@ -1219,8 +1233,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         unreadCount
       });
     } catch (error) {
-      console.error('Error getting notifications:', error);
-      res.status(500).json({ error: 'Failed to get notifications' });
+      console.error('Error in GET /api/notifications handler for path ', req.path, ':', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to get notifications due to an unexpected error.';
+      res.status(500).json({ error: errorMessage }); 
     }
   });
 
@@ -1403,6 +1418,154 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to get group members:", err);
       res.status(500).json({ message: "Failed to get group members" });
+    }
+  });
+
+  // New endpoint to get IDs of users who sent unread messages
+  app.get("/api/notifications/unread-message-senders", isAuthenticated, async (req, res) => {
+    if (!req.user || !req.user.user_id) {
+      return res.status(401).json({ message: "User not authenticated" });
+    }
+    try {
+      const unreadSenders = await storage.getUnreadMessageSenders(req.user.user_id);
+      res.json(unreadSenders);
+    } catch (error) {
+      console.error("Failed to get unread message senders:", error);
+      res.status(500).json({ message: "Failed to retrieve unread message senders" });
+    }
+  });
+
+  // New endpoint to mark notifications from a specific sender as read
+  app.post("/api/notifications/mark-read/sender/:senderId", isAuthenticated, async (req, res) => {
+    if (!req.user || !req.user.user_id) {
+      return res.status(401).json({ message: "User not authenticated" });
+    }
+    try {
+      const recipientUserId = req.user.user_id;
+      const { senderId } = req.params;
+      const { roomId } = req.body; // Optional: pass roomId if you want to be more specific
+
+      await storage.markNotificationsFromSenderAsRead(recipientUserId, senderId, roomId);
+      res.json({ success: true, message: `Notifications from sender ${senderId} marked as read.` });
+    } catch (error) {
+      console.error("Failed to mark notifications from sender as read:", error);
+      res.status(500).json({ message: "Failed to mark notifications from sender as read" });
+    }
+  });
+
+  // Chat API Endpoints
+  // ------------------
+
+  // Get/Create Direct Chat Room
+  app.post("/api/chat/dm/:otherUserId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const currentUser = req.user as unknown as User;
+      const otherUserId = req.params.otherUserId;
+
+      if (!otherUserId) {
+        return res.status(400).json({ message: "Other user ID is required" });
+      }
+
+      if (currentUser.user_id === otherUserId) {
+        return res.status(400).json({ message: "Cannot create a chat room with yourself" });
+      }
+
+      const chatRoom = await storage.getOrCreateDirectChatRoom(currentUser.user_id, otherUserId);
+      res.status(200).json(chatRoom);
+    } catch (error) {
+      console.error("Failed to get or create direct chat room:", error);
+      res.status(500).json({ message: "Failed to get or create direct chat room" });
+    }
+  });
+
+  // Fetch Chat Room Messages
+  app.get("/api/chat/rooms/:roomId/messages", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const currentUser = req.user as unknown as User;
+      const roomId = req.params.roomId;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      if (!roomId) {
+        console.error("Missing roomId in get messages request");
+        return res.status(400).json({ message: "Room ID is required" });
+      }
+      
+      if (!currentUser || !currentUser.user_id) {
+        console.error("User not authenticated in get messages request");
+        return res.status(401).json({ message: "Authentication required" });
+      }
+
+      console.log(`Fetching messages for room ${roomId}, user ${currentUser.user_id}, limit ${limit}, offset ${offset}`);
+      
+      try {
+        const messages = await storage.getChatRoomMessages(roomId, currentUser.user_id, limit, offset);
+        console.log(`Successfully fetched ${messages.length} messages for room ${roomId}`);
+        return res.status(200).json(messages);
+      } catch (storageError: any) {
+        console.error(`Storage error fetching messages: ${storageError.message}`);
+        // Return empty array instead of error to prevent client from breaking
+        return res.status(200).json([]);
+      }
+    } catch (error: any) {
+      console.error(`Failed to fetch chat room messages for room ${req.params.roomId}:`, error);
+      // Return empty array instead of error to prevent client from breaking
+      return res.status(200).json([]);
+    }
+  });
+
+  // Get User's Chat Rooms (Conversation List)
+  app.get("/api/chat/rooms", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const currentUser = req.user as unknown as User;
+      
+      if (!currentUser || !currentUser.user_id) {
+        console.error("User not authenticated in get chat rooms request");
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+      
+      console.log(`Fetching chat rooms for user ${currentUser.user_id}`);
+      const chatRooms = await storage.getChatRooms(currentUser.user_id);
+      
+      if (!chatRooms) {
+        console.error(`Failed to get chat rooms - null response for user ${currentUser.user_id}`);
+        return res.status(500).json({ message: "Failed to get user chat rooms - null response" });
+      }
+      
+      console.log(`Retrieved ${chatRooms.length} chat rooms for user ${currentUser.user_id}`);
+      return res.status(200).json(chatRooms);
+      
+    } catch (error: any) {
+      console.error(`Failed to get user chat rooms: ${error.message}`, error);
+      return res.status(500).json({ message: "Failed to get user chat rooms" });
+    }
+  });
+
+  // Mark messages as read in a chat room
+  app.post('/api/chat/rooms/:roomId/mark-read', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const roomId = req.params.roomId;
+      const currentUser = req.user as unknown as User;
+      
+      if (!currentUser || !currentUser.user_id) {
+        console.log('Unauthorized attempt to mark messages as read');
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      
+      console.log(`Marking messages as read in room ${roomId} for user ${currentUser.user_id}`);
+      
+      try {
+        await storage.markRoomMessagesAsRead(roomId, currentUser.user_id);
+        console.log(`Successfully marked messages as read in room ${roomId} for user ${currentUser.user_id}`);
+        return res.status(200).json({ success: true, message: `Messages in room ${roomId} marked as read.` });
+      } catch (storageError: any) {
+        console.error(`Storage error marking messages as read for room ${roomId}:`, storageError);
+        // Send a more generic error message to client
+        return res.status(500).json({ message: "Server error while marking messages as read. Please try again." });
+      }
+    } catch (error: any) {
+      console.error(`Failed to mark messages as read:`, error);
+      return res.status(500).json({ message: "An unexpected error occurred. Please try again." });
     }
   });
 

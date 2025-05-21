@@ -49,7 +49,7 @@ const ConnectionsPage: FC = () => {
   // Connection mutations
   const acceptRequestMutation = useMutation({
     mutationFn: async (userId: string) => {
-      return apiRequest('POST', `/api/friends/accept`, { friend_id: userId });
+      return apiRequest('POST', `/api/friends/accept/${userId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/user/connections'] });
@@ -59,7 +59,7 @@ const ConnectionsPage: FC = () => {
 
   const rejectRequestMutation = useMutation({
     mutationFn: async (userId: string) => {
-      return apiRequest('DELETE', `/api/friends/request`, { friend_id: userId });
+      return apiRequest('DELETE', `/api/friends/request/${userId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/user/connections/pending'] });
@@ -68,7 +68,7 @@ const ConnectionsPage: FC = () => {
 
   const connectMutation = useMutation({
     mutationFn: async (userId: string) => {
-      return apiRequest('POST', `/api/friends/request`, { friend_id: userId });
+      return apiRequest('POST', `/api/friends/request/${userId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/user/connection-suggestions'] });
