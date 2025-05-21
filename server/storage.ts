@@ -2155,22 +2155,45 @@ export class DatabaseStorage implements IStorage {
     try {
       console.log(`[DEBUG] markRoomMessagesAsRead: Starting for room=${roomId} user=${userId}`);
       
+      // First, let's check which schema we're working with
       try {
-        // Use the Drizzle update builder directly
-        await db.update(notifications)
-          .set({ is_read: true })
-          .where(
-            and(
-              eq(notifications.recipient_user_id, userId),
-              eq(notifications.entity_id, roomId),
-              eq(notifications.entity_type, 'chat_message'),
-              eq(notifications.event_type, 'message_sent'),
-              eq(notifications.is_read, false)
-            )
-          );
+        const hasRecipientUserIdColumn = await this.checkIfColumnExists('notifications', 'recipient_user_id');
+        const hasUserIdColumn = await this.checkIfColumnExists('notifications', 'user_id');
         
-        console.log(`[DEBUG] markRoomMessagesAsRead: Successfully updated notifications for room=${roomId} user=${userId}`);
-        return;
+        console.log(`[DEBUG] Schema check: recipient_user_id exists: ${hasRecipientUserIdColumn}, user_id exists: ${hasUserIdColumn}`);
+        
+        if (hasRecipientUserIdColumn) {
+          // Use the new schema
+          await db.update(notifications)
+            .set({ is_read: true })
+            .where(
+              and(
+                eq(notifications.recipient_user_id, userId),
+                eq(notifications.entity_id, roomId),
+                eq(notifications.entity_type, 'chat_message'),
+                eq(notifications.event_type, 'message_sent'),
+                eq(notifications.is_read, false)
+              )
+            );
+          console.log(`[DEBUG] markRoomMessagesAsRead: Successfully updated notifications using new schema (recipient_user_id) for room=${roomId} user=${userId}`);
+          return;
+        } else if (hasUserIdColumn) {
+          // Use the old schema with raw SQL
+          await db.execute(`
+            UPDATE notifications 
+            SET is_read = true 
+            WHERE user_id = '${userId}' 
+            AND related_item_id = '${roomId}' 
+            AND type = 'message_sent' 
+            AND is_read = false
+          `);
+          
+          console.log(`[DEBUG] markRoomMessagesAsRead: Successfully updated notifications using old schema (user_id) for room=${roomId} user=${userId}`);
+          return;
+        } else {
+          // No compatible schema found
+          throw new Error("Could not determine notifications table schema. Neither recipient_user_id nor user_id column found.");
+        }
       } catch (dbError: any) {
         console.error(`[DATABASE ERROR] markRoomMessagesAsRead: SQL error:`, dbError);
         // Create a cleaner error to propagate upward
@@ -2180,6 +2203,30 @@ export class DatabaseStorage implements IStorage {
       console.error(`[ERROR] markRoomMessagesAsRead failed:`, error);
       // Rethrow with a clean message
       throw new Error(`Failed to mark messages as read: ${error.message}`);
+    }
+  }
+
+  // Helper method to check if a column exists in a table
+  private async checkIfColumnExists(tableName: string, columnName: string): Promise<boolean> {
+    try {
+      const result = await db.execute(`
+        SELECT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = '${tableName}' 
+          AND column_name = '${columnName}'
+        ) as column_exists
+      `);
+      
+      // Parse the result properly based on DrizzleORM's response format
+      if (result && Array.isArray(result) && result.length > 0) {
+        return result[0].column_exists === true;
+      }
+      
+      console.warn(`[WARN] Unexpected format from db.execute when checking column existence: ${JSON.stringify(result)}`);
+      return false;
+    } catch (error) {
+      console.error(`Error checking if column ${columnName} exists in table ${tableName}:`, error);
+      return false;
     }
   }
 

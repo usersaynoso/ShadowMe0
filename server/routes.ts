@@ -1560,12 +1560,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(200).json({ success: true, message: `Messages in room ${roomId} marked as read.` });
       } catch (storageError: any) {
         console.error(`Storage error marking messages as read for room ${roomId}:`, storageError);
-        // Send a more generic error message to client
-        return res.status(500).json({ message: "Server error while marking messages as read. Please try again." });
+        const errorMessage = String(storageError.message || 'Unknown storage error');
+        console.log(`[MARK-READ ERROR HANDLER] Sending storage error response: ${errorMessage}`); 
+        return res.status(500).json({ 
+          message: "Server error while marking messages as read. Please try again.", 
+          error: errorMessage 
+        });
       }
     } catch (error: any) {
       console.error(`Failed to mark messages as read:`, error);
-      return res.status(500).json({ message: "An unexpected error occurred. Please try again." });
+      const errorMessage = String(error.message || 'Unknown error');
+      console.log(`[MARK-READ ERROR HANDLER] Sending general error response: ${errorMessage}`);
+      return res.status(500).json({ 
+        message: "An unexpected error occurred. Please try again.", 
+        error: errorMessage
+      });
     }
   });
 

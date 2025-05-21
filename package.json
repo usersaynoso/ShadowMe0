@@ -13,6 +13,8 @@
     "db:seed": "tsx scripts/seed-emotions.ts",
     "db:backup": "node ./scripts/backup-database.js",
     "db:create-session-table": "node ./scripts/create_session_table.js",
+    "db:migrate": "node ./scripts/run-migration.js",
+    "db:verify": "node ./scripts/verify-schema.js",
     "storage:setup": "tsx scripts/create-buckets.ts",
     "setup": "npm run db:push && npm run db:seed && npm run storage:setup && npm run db:create-session-table",
     "test": "echo \"Error: no test specified\" && exit 1"
