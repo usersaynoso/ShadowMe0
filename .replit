@@ -10,6 +10,11 @@ deploymentTarget = "autoscale"
 run = ["sh", "-c", "npm run start"]
 
 [[ports]]
+localPort = 3000
+externalPort = 3000
+exposeLocalhost = true
+
+[[ports]]
 localPort = 5000
 externalPort = 80
 
