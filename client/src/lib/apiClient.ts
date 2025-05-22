@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
 // Handle both test and browser environments
-let API_BASE_URL = 'http://localhost:3000/api';
+let API_BASE_URL = 'http://0.0.0.0:5000/api';
 
 // Check if we're in a browser context with Vite's import.meta available
 try {
