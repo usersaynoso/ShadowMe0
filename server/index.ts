@@ -62,12 +62,12 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // Use PORT from environment variable or default to 3001
-  const port = 5000;
+  // Use port 3000 to match .replit configuration
+  const port = 3000;
   server.listen({
     port,
     host: "0.0.0.0",
   }, () => {
-    log(`serving on port ${port}`);
+    log(`Server listening on http://0.0.0.0:${port}`);
   });
 })();
