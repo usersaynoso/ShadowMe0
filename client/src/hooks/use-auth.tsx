@@ -102,8 +102,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         title: "Logged out",
         description: "You've been successfully logged out.",
       });
-      // Redirect to auth page after logout
-      navigate("/auth");
+      // Redirect to home page after logout, ProtectedRoute will then redirect to /auth
+      window.location.href = "/";
     },
     onError: (error: Error) => {
       toast({

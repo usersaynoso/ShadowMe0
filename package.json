@@ -17,7 +17,11 @@
     "db:verify": "node ./scripts/verify-schema.js",
     "storage:setup": "tsx scripts/create-buckets.ts",
     "setup": "npm run db:push && npm run db:seed && npm run storage:setup && npm run db:create-session-table",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node ./scripts/run-tests.js",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:headed": "node ./scripts/run-tests.js --headed",
+    "test:single": "node ./scripts/run-tests.js -g"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -55,7 +59,6 @@
     "@tanstack/react-query": "^5.60.5",
     "@types/cors": "^2.8.18",
     "@types/multer": "^1.4.12",
-    "axios": "^1.9.0",
     "chalk": "^5.4.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -101,6 +104,8 @@
     "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
+    "@playwright/experimental-ct-react": "^1.52.0",
+    "@playwright/test": "^1.52.0",
     "@replit/vite-plugin-cartographer": "^0.1.2",
     "@replit/vite-plugin-runtime-error-modal": "^0.0.3",
     "@tailwindcss/typography": "^0.5.15",
@@ -116,6 +121,8 @@
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.2",
     "autoprefixer": "^10.4.20",
+    "axios": "^1.9.0",
+    "canvas": "^3.1.0",
     "drizzle-kit": "^0.30.4",
     "esbuild": "^0.25.0",
     "postcss": "^8.4.47",

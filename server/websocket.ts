@@ -31,6 +31,39 @@ interface SocketData {
 // Socket.IO server instance reference
 let io: Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 
+// Map to track active users and their socket IDs
+// This allows us to find a user's socket ID by their user ID
+const userSocketMap = new Map<string, Set<string>>();
+
+// Helper function to register a socket ID for a user
+const registerUserSocket = (userId: string, socketId: string) => {
+  if (!userSocketMap.has(userId)) {
+    userSocketMap.set(userId, new Set());
+  }
+  userSocketMap.get(userId)!.add(socketId);
+  console.log(`[WebSocket] Registered socket ${socketId} for user ${userId}. Active sockets: ${userSocketMap.get(userId)!.size}`);
+};
+
+// Helper function to unregister a socket ID for a user
+const unregisterUserSocket = (userId: string, socketId: string) => {
+  if (userSocketMap.has(userId)) {
+    userSocketMap.get(userId)!.delete(socketId);
+    // If this was the last socket for this user, remove the user entry
+    if (userSocketMap.get(userId)!.size === 0) {
+      userSocketMap.delete(userId);
+    }
+    console.log(`[WebSocket] Unregistered socket ${socketId} for user ${userId}`);
+  }
+};
+
+// Helper function to get all socket IDs for a user
+const getSocketIdsForUser = (userId: string): string[] => {
+  if (userSocketMap.has(userId)) {
+    return Array.from(userSocketMap.get(userId)!);
+  }
+  return [];
+};
+
 // Getter function to access the Socket.IO server instance
 export const getIO = (): Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData> => {
   if (!io) {
@@ -83,15 +116,74 @@ export const initWebSocketServer = (httpServer: HttpServer) => {
 
       console.log(`[WebSocket] User connected: ${displayName} (ID: ${userId}), Socket ID: ${socket.id}`);
       
-      // Join rooms when requested by client
-      socket.on('joinRoom', (roomId) => {
-        if (!roomId) {
-          console.log(`[WebSocket] Client ${socket.id} (${userId}) attempted to join room with null/empty roomId`);
-          return;
+      // Register this socket for the user
+      registerUserSocket(userId, socket.id);
+      
+      // Automatically join user to their personal room for notifications
+      // This allows sending direct notifications to a user across all their connections
+      const userRoom = `user_${userId}`;
+      socket.join(userRoom);
+      console.log(`[WebSocket] User ${userId} (Socket ${socket.id}) automatically joined personal room: ${userRoom}`);
+      
+      // Get all active chat rooms for this user and join them automatically
+      try {
+        const userRooms = await storage.getChatRooms(userId);
+        if (userRooms && userRooms.length > 0) {
+          for (const room of userRooms) {
+            if (room.chat_room_id) {
+              socket.join(room.chat_room_id);
+              console.log(`[WebSocket] User ${userId} (Socket ${socket.id}) automatically joined room: ${room.chat_room_id}`);
+            }
+          }
         }
+      } catch (error) {
+        console.error(`[WebSocket] Error auto-joining rooms for user ${userId}:`, error);
+      }
+      
+      // Join rooms when requested by client
+      socket.on('joinRoom', async (roomId) => {
+        if (!roomId) return;
         
-        console.log(`[WebSocket] User ${userId} (Socket ${socket.id}) joining room: ${roomId}`);
-        socket.join(roomId);
+        try {
+          // Save in an array of connected users for later use
+          const userId = socket.data.userId;
+          const displayName = socket.data.displayName;
+          
+          if (roomId.startsWith('user_')) {
+            // Handle joining a user's personal notification room
+            // These rooms are used for notifications and follow the format 'user_[userId]'
+            console.log(`[WebSocket] User ${displayName} (ID: ${userId}) joined personal room: ${roomId}`);
+            socket.join(roomId);
+            
+            // Register this socket for direct messaging to the user
+            registerUserSocket(userId, socket.id);
+          } else {
+            // For regular chat rooms, verify membership before joining
+            try {
+              const isMember = await storage.isUserChatRoomMember(roomId, userId);
+              
+              if (isMember) {
+                // Track the room membership with the socket's active rooms
+                socket.join(roomId);
+                console.log(`[WebSocket] User ${userId} (Socket ${socket.id}) joined room: ${roomId}`);
+                
+                // Auto-join the user's personal notification room if it's not already joined
+                const userRoom = `user_${userId}`;
+                const rooms = Array.from(socket.rooms || []);
+                if (!rooms.includes(userRoom)) {
+                  socket.join(userRoom);
+                  console.log(`[WebSocket] User ${displayName} (ID: ${userId}) automatically joined room: ${roomId}`);
+                }
+              } else {
+                console.log(`[WebSocket] User ${userId} denied access to room ${roomId}: Not a member`);
+              }
+            } catch (err) {
+              console.error(`Error checking room membership for ${userId} in room ${roomId}:`, err);
+            }
+          }
+        } catch (error) {
+          console.error('Error in joinRoom handler:', error);
+        }
       });
 
       // Leave rooms when requested by client
@@ -103,6 +195,17 @@ export const initWebSocketServer = (httpServer: HttpServer) => {
         
         console.log(`[WebSocket] User ${userId} (Socket ${socket.id}) leaving room: ${roomId}`);
         socket.leave(roomId);
+      });
+      
+      // Handle disconnection
+      socket.on('disconnecting', () => {
+        console.log(`[WebSocket] User ${userId} (Socket ${socket.id}) disconnecting`);
+      });
+
+      socket.on('disconnect', () => {
+        console.log(`[WebSocket] User ${userId} (Socket ${socket.id}) disconnected`);
+        // Unregister this socket when the user disconnects
+        unregisterUserSocket(userId, socket.id);
       });
 
       socket.on('sendMessage', async (data) => {
@@ -185,8 +288,34 @@ export const initWebSocketServer = (httpServer: HttpServer) => {
           } else {
               console.log(`[SERVER DEBUG] No sockets found in room ${roomId} for broadcast (checked before emit).`);
           }
+          // First emit to the room
           io.to(roomId).emit('newMessage', messageForBroadcast);
           console.log(`'newMessage' event broadcasted to room ${roomId} with message ID ${messageForBroadcast.message_id}`);
+
+          // Check if any sockets actually received the broadcast
+          const socketsInRoomForBroadcast = await io.in(roomId).fetchSockets();
+          console.log(`Sockets in room ${roomId} that should have received broadcast: ${socketsInRoomForBroadcast.length}`);
+          
+          // As a fallback, emit directly to all sockets of each member in the room for redundancy
+          const roomMembersForDirectMessage = await storage.getChatRoomMembers(roomId) || [];
+          console.log(`Room ${roomId} has ${roomMembersForDirectMessage.length} members, sending direct socket messages to each`);
+          
+          for (const member of roomMembersForDirectMessage) {
+            // Get all sockets for this user
+            const memberSocketIds = getSocketIdsForUser(member.user_id);
+            
+            if (memberSocketIds.length > 0) {
+              console.log(`Found ${memberSocketIds.length} active sockets for user ${member.user_id}`);
+              
+              // Send the message directly to each socket
+              for (const socketId of memberSocketIds) {
+                io.to(socketId).emit('newMessage', messageForBroadcast);
+              }
+              console.log(`Direct 'newMessage' event sent to ${memberSocketIds.length} sockets for user ${member.user_id}`);
+            } else {
+              console.log(`No active sockets found for user ${member.user_id}`);
+            }
+          }
 
           // 3. Handle unread notifications
           //    Identify recipient(s) in the room. If it's a DM, the recipient is the other user.
@@ -195,16 +324,34 @@ export const initWebSocketServer = (httpServer: HttpServer) => {
 
           const roomMembers = await storage.getChatRoomMembers(roomId); // Assumes this function exists
           if (roomMembers) {
-            for (const member of roomMembers) {
+            for (const member of roomMembersForDirectMessage) {
               if (member.user_id !== userId) { // Don't notify the sender
-                const recipientSocketId = member.user_id; // Assuming user_id is used for socket room joining
+                // Use the user's personal notification room with consistent naming
+                const recipientUserRoom = `user_${member.user_id}`;
                 
-                // Emit 'newNotification' to the recipient's personal room/socket
-                io.to(recipientSocketId).emit('newNotification', { 
+                // Log active sockets for this recipient for debugging
+                const recipientSockets = getSocketIdsForUser(member.user_id);
+                console.log(`[WebSocket] Sending notification to user ${member.user_id}. Active sockets: ${recipientSockets.length}`);
+                
+                // Emit to the recipient's personal room which all their sockets have joined
+                io.to(recipientUserRoom).emit('newNotification', { 
                   senderId: userId, 
                   roomId: roomId,
                   message: messageForBroadcast // Send the full message with the notification
                 });
+                
+                // Don't emit the message again - it was already emitted to the room above
+                // io.to(roomId).emit('newMessage', messageForBroadcast); // This line is removed to avoid duplicate messages
+                
+                // Send direct notifications to each socket for redundancy
+                for (const socketId of recipientSockets) {
+                  io.to(socketId).emit('newNotification', {
+                    senderId: userId,
+                    roomId: roomId,
+                    message: messageForBroadcast
+                  });
+                }
+                
                 console.log(`'newNotification' event emitted to user ${member.user_id} for room ${roomId}`);
 
                 // Persist notification in the database
@@ -212,7 +359,7 @@ export const initWebSocketServer = (httpServer: HttpServer) => {
                   recipient_user_id: member.user_id,
                   actor_user_id: userId,
                   event_type: 'message_sent',
-                  entity_id: roomId, // Could also be message_id if preferred for direct linking
+                  entity_id: roomId,
                   entity_type: 'chat_message',
                 });
                 console.log(`Notification persisted for user ${member.user_id} from sender ${userId} in room ${roomId}`);

@@ -1,8 +1,9 @@
-import { FC, ReactNode } from "react";
+import { FC, ReactNode, useState } from "react";
 import { Header } from "./header";
 import { LeftSidebar } from "./left-sidebar";
 import { RightSidebar } from "./right-sidebar";
 import { MobileNavigation } from "./mobile-navigation";
+import { MessagesPanel } from "./MessagesPanel";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 interface MainLayoutProps {
@@ -17,6 +18,11 @@ export const MainLayout: FC<MainLayoutProps> = ({
   showRightSidebar = true
 }) => {
   const isMobile = useIsMobile();
+  const [isMessagesPanelOpen, setIsMessagesPanelOpen] = useState(false);
+
+  const toggleMessagesPanel = () => {
+    setIsMessagesPanelOpen(prev => !prev);
+  };
 
   return (
     <div className="flex flex-col h-screen">
@@ -77,7 +83,10 @@ export const MainLayout: FC<MainLayoutProps> = ({
         })()}
       </main>
       
-      {isMobile && <MobileNavigation />}
+      {isMobile && <MobileNavigation onMessagesClick={toggleMessagesPanel} />}
+      {isMobile && (
+        <MessagesPanel isOpen={isMessagesPanelOpen} onClose={toggleMessagesPanel} />
+      )}
     </div>
   );
 };

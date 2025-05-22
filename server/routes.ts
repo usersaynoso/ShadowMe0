@@ -74,9 +74,115 @@ async function createUserNotification(
   }
 }
 
+// Testing routes - only enabled in development mode
+const setupTestRoutes = (app: Express) => {
+  if (process.env.NODE_ENV !== 'production') {
+    // Test endpoint to send a fake message to the current user
+    app.post('/api/test/send-message', isAuthenticated, async (req: Request, res: Response) => {
+      try {
+        const { content = 'Test message for unread count', targetUserId } = req.body;
+        const currentUser = req.user as unknown as User;
+        
+        if (!currentUser || !currentUser.user_id) {
+          return res.status(401).json({ error: 'Authentication required' });
+        }
+        
+        // Find a sender - either specified or any other user
+        let senderId = targetUserId;
+        if (!senderId) {
+          // Find any other user that's not the current user
+          const otherUser = await db.query.users.findFirst({
+            where: (users, { ne }) => ne(users.user_id, currentUser.user_id)
+          });
+          
+          if (!otherUser) {
+            return res.status(404).json({ error: 'No other user found to send a test message' });
+          }
+          
+          senderId = otherUser.user_id;
+        }
+        
+        // Find existing direct message room or create one
+        let chatRoomId = null;
+        
+        // Get all chat rooms for the current user
+        const userChatRooms = await storage.getChatRooms(currentUser.user_id);
+        
+        // Look for a direct message room with the target user
+        const existingRoom = userChatRooms.find(room => 
+          room.type === 'direct' && 
+          room.otherParticipant && 
+          room.otherParticipant.user_id === senderId
+        );
+        
+        if (existingRoom) {
+          chatRoomId = existingRoom.chat_room_id;
+          console.log(`Found existing chat room: ${chatRoomId}`);
+        } else {
+          // Create a new direct message room using getOrCreateDirectChatRoom method
+          const newRoom = await storage.getOrCreateDirectChatRoom(currentUser.user_id, senderId);
+          chatRoomId = newRoom.chat_room_id;
+          console.log(`Created new chat room: ${chatRoomId}`);
+        }
+        
+        if (!chatRoomId) {
+          return res.status(500).json({ error: 'Failed to find or create chat room' });
+        }
+        
+        // Insert the test message
+        const message = await storage.createChatMessage({
+          chat_room_id: chatRoomId,
+          sender_id: senderId,
+          recipient_id: currentUser.user_id,
+          body: content,
+          message_type: 'text'
+        });
+        
+        // Create notification for the message (which marks it as unread)
+        // Note: Adjust properties based on the actual InsertNotification type
+        await storage.createNotification({
+          recipient_user_id: currentUser.user_id,
+          actor_user_id: senderId,
+          event_type: 'message_sent',
+          entity_id: chatRoomId,
+          entity_type: 'chat_room',
+          is_read: false
+        });
+        
+        // Emit socket event
+        const io = getIO();
+        io.to(currentUser.user_id).emit('newNotification', {
+          senderId,
+          roomId: chatRoomId,
+          message: {
+            id: message.message_id,
+            content: message.content,
+            timestamp: message.created_at
+          }
+        });
+        
+        return res.json({
+          success: true,
+          message: 'Test message sent',
+          chatRoomId,
+          messageId: message.message_id
+        });
+      } catch (error) {
+        console.error('Error creating test message:', error);
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+    });
+    
+    console.log('Test routes enabled in development mode');
+  }
+};
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server
   const httpServer = createServer(app);
+  
+  // Setup test routes (only in development)
+  setupTestRoutes(app);
   
   // Set up WebSockets - This is now done in server/index.ts
   // setupWebSockets(httpServer);

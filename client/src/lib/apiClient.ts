@@ -1,6 +1,18 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+// Handle both test and browser environments
+let API_BASE_URL = 'http://localhost:3000/api';
+
+// Check if we're in a browser context with Vite's import.meta available
+try {
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_BASE_URL) {
+    API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+  }
+} catch (error) {
+  // If we're in a test environment, import.meta might not be available
+  // Use the default API_BASE_URL
+  console.log('Using default API URL for tests or SSR');
+}
 
 // Create axios instance with base URL and default config
 const axiosInstance: AxiosInstance = axios.create({
