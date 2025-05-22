@@ -85,7 +85,7 @@ async function startDevServer() {
   console.log(chalk.blue('🚀 Starting development server...'));
   
   // Start the Vite dev server on port 3000
-  const viteProcess = spawn('npx', ['vite', '--port', '3000'], { 
+  const viteProcess = spawn('npx', ['vite', '--port', '3000', '--host', '0.0.0.0'], { 
     stdio: 'inherit',
     shell: true
   });
