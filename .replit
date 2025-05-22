@@ -14,7 +14,7 @@ localPort = 5000
 externalPort = 80
 
 [workflows]
-runButton = "Project"
+runButton = "Development"
 
 [[workflows.workflow]]
 name = "Project"
@@ -33,3 +33,16 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 3000
+
+[[workflows.workflow]]
+name = "Development"
+author = 42238147
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run server"
