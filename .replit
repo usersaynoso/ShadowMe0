@@ -12,7 +12,6 @@ run = ["sh", "-c", "npm run start"]
 [[ports]]
 localPort = 3000
 externalPort = 3000
-exposeLocalhost = true
 
 [[ports]]
 localPort = 5000
@@ -43,10 +42,6 @@ waitForPort = 3000
 name = "Development"
 author = 42238147
 mode = "parallel"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm run dev"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
